@@ -281,7 +281,7 @@ test("group headings keep selected models and footer visible on short terminals"
       assert.ok(lines.every((line) => visibleWidth(line) <= width));
       if (width >= 80) {
         assert.match(lines.join("\n"), new RegExp(`› \\[ \\] ${value}`));
-        assert.match(lines.join("\n"), /w\/s reorder.*Esc cancel/);
+        assert.match(lines.join("\n"), /w\/s \| Ctrlꜛꜜ reorder.*Esc cancel/);
         assert.match(stripTerminalSequences(lines.at(-1)!), /^╰.*╯$/);
       }
     }
@@ -337,51 +337,57 @@ test("ordered model editor keeps raw identities while sanitizing picker labels",
   assert.deepEqual(done, [[rawIdentity]]);
 });
 
-test("w/s reorder selected models, preserve selection, and stop at boundaries", () => {
-  const { component, done } = createComponent({
-    initialModels: ["custom/missing", "openai/gpt-4.1", "anthropic/claude-3.7-sonnet"],
-    scopedModels: ["anthropic/claude-3.7-sonnet", "openai/gpt-4.1"],
+for (const [name, MOVE_UP, MOVE_DOWN] of [
+  ["w/s", "w", "s"],
+  ["Ctrl+Up/Down", "\u001B[1;5A", "\u001B[1;5B"],
+  ["mixed shortcuts", "w", "\u001B[1;5B"],
+]) {
+  test(`${name} reorder selected models, preserve selection, and stop at boundaries`, () => {
+    const { component, done } = createComponent({
+      initialModels: ["custom/missing", "openai/gpt-4.1", "anthropic/claude-3.7-sonnet"],
+      scopedModels: ["anthropic/claude-3.7-sonnet", "openai/gpt-4.1"],
+    });
+    assert.match(
+      modelItems(component)[0]!.description ?? "",
+      /unavailable in current model registry/,
+    );
+    press(component, MOVE_UP);
+    assert.equal(component.getSelectList().getSelectedItem()?.value, "custom/missing");
+    press(component, MOVE_DOWN);
+    assert.deepEqual(component.getDraftModels(), [
+      "openai/gpt-4.1",
+      "custom/missing",
+      "anthropic/claude-3.7-sonnet",
+    ]);
+    assert.equal(component.getSelectList().getSelectedItem()?.value, "custom/missing");
+    assert.match(component.getSelectList().getSelectedItem()!.label, /\[x\] 2\./);
+    press(component, MOVE_UP);
+    assert.deepEqual(component.getDraftModels(), [
+      "custom/missing",
+      "openai/gpt-4.1",
+      "anthropic/claude-3.7-sonnet",
+    ]);
+    moveSelectionToValue(component, "anthropic/claude-3.7-sonnet");
+    press(component, MOVE_DOWN);
+    assert.equal(component.getSelectList().getSelectedItem()?.value, "anthropic/claude-3.7-sonnet");
+    moveSelectionToValue(component, "google/gemini-2.5-pro");
+    press(component, MOVE_UP, MOVE_DOWN);
+    assert.deepEqual(component.getDraftModels(), [
+      "custom/missing",
+      "openai/gpt-4.1",
+      "anthropic/claude-3.7-sonnet",
+    ]);
+    assert.equal(component.getSelectList().getSelectedItem()?.value, "google/gemini-2.5-pro");
+    assert.equal(component.getSearchInput().getValue(), "");
+    activateValue(component, "custom/missing");
+    assert.deepEqual(component.getDraftModels(), ["openai/gpt-4.1", "anthropic/claude-3.7-sonnet"]);
+    assert.ok(!modelItems(component).some((item) => item.value === "custom/missing"));
+    activateValue(component, "action:clear");
+    assert.deepEqual(component.getDraftModels(), []);
+    press(component, CTRL_S);
+    assert.deepEqual(done, [[]]);
   });
-  assert.match(
-    modelItems(component)[0]!.description ?? "",
-    /unavailable in current model registry/,
-  );
-  press(component, MOVE_UP);
-  assert.equal(component.getSelectList().getSelectedItem()?.value, "custom/missing");
-  press(component, MOVE_DOWN);
-  assert.deepEqual(component.getDraftModels(), [
-    "openai/gpt-4.1",
-    "custom/missing",
-    "anthropic/claude-3.7-sonnet",
-  ]);
-  assert.equal(component.getSelectList().getSelectedItem()?.value, "custom/missing");
-  assert.match(component.getSelectList().getSelectedItem()!.label, /\[x\] 2\./);
-  press(component, MOVE_UP);
-  assert.deepEqual(component.getDraftModels(), [
-    "custom/missing",
-    "openai/gpt-4.1",
-    "anthropic/claude-3.7-sonnet",
-  ]);
-  moveSelectionToValue(component, "anthropic/claude-3.7-sonnet");
-  press(component, MOVE_DOWN);
-  assert.equal(component.getSelectList().getSelectedItem()?.value, "anthropic/claude-3.7-sonnet");
-  moveSelectionToValue(component, "google/gemini-2.5-pro");
-  press(component, MOVE_UP, MOVE_DOWN);
-  assert.deepEqual(component.getDraftModels(), [
-    "custom/missing",
-    "openai/gpt-4.1",
-    "anthropic/claude-3.7-sonnet",
-  ]);
-  assert.equal(component.getSelectList().getSelectedItem()?.value, "google/gemini-2.5-pro");
-  assert.equal(component.getSearchInput().getValue(), "");
-  activateValue(component, "custom/missing");
-  assert.deepEqual(component.getDraftModels(), ["openai/gpt-4.1", "anthropic/claude-3.7-sonnet"]);
-  assert.ok(!modelItems(component).some((item) => item.value === "custom/missing"));
-  activateValue(component, "action:clear");
-  assert.deepEqual(component.getDraftModels(), []);
-  press(component, CTRL_S);
-  assert.deepEqual(done, [[]]);
-});
+}
 
 test("search mode accepts w/s as text and Tab preserves the query when returning to reorder", () => {
   for (const enterSearch of ["/", TAB]) {
@@ -393,7 +399,7 @@ test("search mode accepts w/s as text and Tab preserves the query when returning
     assert.equal(component.getSearchInput().getValue(), "ws");
     assert.deepEqual(component.getDraftModels(), initialModels);
     assert.match(component.render(100).join("\n"), /Tab browse/);
-    assert.doesNotMatch(component.render(100).join("\n"), /w\/s reorder/);
+    assert.doesNotMatch(component.render(100).join("\n"), /w\/s \| Ctrlꜛꜜ reorder/);
 
     press(component, TAB);
     assert.equal(component.getSearchInput().focused, false);
@@ -402,7 +408,7 @@ test("search mode accepts w/s as text and Tab preserves the query when returning
     press(component, MOVE_DOWN);
     assert.deepEqual(component.getDraftModels(), ["openai/gpt-4.1", "custom/missing"]);
     assert.equal(component.getSearchInput().getValue(), "ws");
-    assert.match(component.render(100).join("\n"), /w\/s reorder/);
+    assert.match(component.render(100).join("\n"), /w\/s \| Ctrlꜛꜜ reorder/);
 
     press(component, TAB, "w", "s");
     assert.equal(component.getSearchInput().getValue(), "wsws");
@@ -473,6 +479,6 @@ test("model dialogs keep selected rows, borders and footer visible on short term
   component.focused = true;
   const lines = component.render(80);
   assert.ok(lines.length <= 10);
-  assert.match(lines.join("\n"), /w\/s reorder.*Esc cancel/);
+  assert.match(lines.join("\n"), /w\/s \| Ctrlꜛꜜ reorder.*Esc cancel/);
   assert.match(stripTerminalSequences(lines.at(-1)!), /^╰.*╯$/);
 });

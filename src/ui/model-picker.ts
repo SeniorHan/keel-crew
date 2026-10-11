@@ -239,8 +239,8 @@ export class OrderedModelEditorComponent extends Container {
       this.tui.requestRender();
       return;
     }
-    const earlier = !this.searching && keyData === "w";
-    const later = !this.searching && keyData === "s";
+    const earlier = !this.searching && (keyData === "w" || matchesKey(keyData, Key.ctrl("up")));
+    const later = !this.searching && (keyData === "s" || matchesKey(keyData, Key.ctrl("down")));
     if (earlier || later) {
       const selected = this.selectList.getSelectedItem()?.value;
       const index = selected === undefined ? -1 : this.draft.indexOf(selected);
@@ -287,7 +287,7 @@ export class OrderedModelEditorComponent extends Container {
         "dim",
         this.searching
           ? "↑↓ select · Enter toggle · Tab browse · Ctrl+S done · Esc cancel"
-          : "↑↓ select · Enter toggle · w/s reorder · / search · Ctrl+S done · Esc cancel",
+          : "↑↓ · Enter toggle · w/s | Ctrlꜛꜜ reorder · / search · Ctrl+S done · Esc cancel",
       ),
     );
   }
