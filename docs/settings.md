@@ -186,8 +186,15 @@ Lower it to keep the tree tidy. Raise it for long sessions with many agents. Whe
 
 Settings are read in order: **built-in defaults → Global → trusted Current Project**.
 All keys are optional. The dialog saves only values different from the lower layer,
-so unchanged settings continue inheriting future global changes. Restoring defaults
-is a draft edit; in Project scope it can explicitly override non-default global values.
+so unchanged settings continue inheriting future global changes.
+
+**Restore defaults** asks you to pick **Global** or **Project** (Project only in a
+trusted project). The picker shows the exact `settings.json` path each choice
+deletes. Choosing one deletes that file immediately — nothing is rewritten with
+default or empty values — then reloads settings and discards unsaved edits. A
+missing file is not an error. There is no undo, and Cancel in the outer dialog
+cannot bring the file back. Deleting the Project file returns the save scope to
+Global; Global values still apply beneath any remaining Project file.
 
 Colored dots before each setting describe saved changes: an **accent dot** means
 changed in Global relative to defaults; a **warning dot** means changed in Current

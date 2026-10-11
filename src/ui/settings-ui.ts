@@ -15,7 +15,9 @@ import {
   type CostValue,
   LOADER_STYLES,
   type LoaderStyle,
+  deleteManagerSettings,
   loadManagerSettingsLayers,
+  managerSettingsPath,
   saveManagerOverrides,
   setManagerProjectSettings,
   type ManagerSettings,
@@ -364,7 +366,7 @@ async function configureAgentsDialog(
         {
           id: "defaults",
           label: "Restore defaults",
-          help: "Replace all values shown with built-in defaults.\nNothing is saved until you choose Save and apply.",
+          help: "Pick Global or Project, then delete that scope's settings.json so its defaults apply again.\nThe file is removed, not rewritten; unsaved edits are discarded. This cannot be undone.",
         },
         {
           id: "save",
@@ -489,7 +491,37 @@ async function configureAgentsDialog(
             options.apply();
           }
         }
-      } else if (action === "defaults") draft = { ...DEFAULT_MANAGER_SETTINGS };
+      } else if (action === "defaults") {
+        const target = { cwd: ctx.cwd, agentDir: options.agentDir, includeProject: ctx.isProjectTrusted() };
+        const globalPath = managerSettingsPath(target, "user");
+        const projectPath = target.includeProject ? managerSettingsPath(target, "project") : undefined;
+        const explain = (path: string) =>
+          `Deletes this file now (nothing is written):\n${path}\nIf it does not exist, nothing happens. Unsaved edits are discarded. No undo.`;
+        const rows: DialogRow[] = [
+          { id: "user", label: "Global", value: "Restore global defaults", help: explain(globalPath) },
+          ...(projectPath
+            ? [{ id: "project", label: "Project", value: "Restore project defaults", help: explain(projectPath) }]
+            : []),
+          { id: "cancel", label: "Cancel", help: "Delete nothing." },
+        ];
+        const choice = await dialogMenu(ctx, "Restore defaults: delete which settings file?", rows, {
+          selectedId: "cancel",
+          footer: "↑↓/Tab choose · Enter delete file · Esc cancel",
+        });
+        if (choice === "user" || choice === "project") {
+          const { filePath, deleted } = deleteManagerSettings({ ...target, scope: choice });
+          layers = readLayers();
+          reportDiagnostics();
+          baseline = { ...layers.settings };
+          draft = { ...baseline };
+          scope = layers.scope;
+          options.apply();
+          ctx.ui.notify(
+            deleted ? `Deleted ${filePath}. Defaults restored.` : `No settings file at ${filePath}; nothing to delete.`,
+            "info",
+          );
+        }
+      }
       else if (action === "types") {
         await editAgentTypes(ctx, options.store, draft.nerdFontIcons, {
           getAllTools: options.getAllTools ?? (() => []),

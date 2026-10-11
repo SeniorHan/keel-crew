@@ -154,10 +154,11 @@ test("[lab] Loader style cancel, restore-defaults and narrow layouts preserve dr
     settings: { ...DEFAULT_MANAGER_SETTINGS, loaderStyle: "hourglass" },
   });
   assert.equal(chooserCancelled.loaded.settings.loaderStyle, "hourglass");
-  const restored = await run(t, ["defaults", "save"], {
+  const restored = await run(t, ["defaults", "user", "cancel"], {
     settings: { ...DEFAULT_MANAGER_SETTINGS, loaderStyle: "braille" },
   });
   assert.equal(restored.loaded.settings.loaderStyle, "circle");
+  assert.equal(existsSync(restored.userFile), false);
   for (const width of [20, 40, 60]) {
     const result = await run(t, ["loaderStyle", "hourglass", "save"], {
       width,
@@ -321,7 +322,7 @@ test("Model Picking saves to a trusted project", async (t) => {
 test("save shows a warning-colored changes value only while the draft is dirty", async (t) => {
   const result = await run(t, [
     "modelSelection", "pick-first-available", "modelSelection", "pick-first-scoped",
-    "maxLevels", "5", "defaults", "cancel",
+    "maxLevels", "5", "defaults", "user", "cancel",
   ]);
   const settingsMenus = result.menus.filter((menu) => menu.title.startsWith("Agents settings"));
   const save = (index: number) => settingsMenus[index]!.rows.find((row) => row.id === "save")!;
@@ -396,8 +397,8 @@ test("edits made before confirming Project are saved there rather than copied in
   assert.equal(result.appliedSettings[0]!.maxThreads, 20);
 });
 
-test("restore defaults resets the whole draft before save", async (t) => {
-  const result = await run(t, ["defaults", "save"], {
+test("restore defaults deletes the chosen scope's file and resets the draft", async (t) => {
+  const result = await run(t, ["defaults", "user", "cancel"], {
     settings: {
       ...DEFAULT_MANAGER_SETTINGS,
       subagentMode: "orchestration",
@@ -407,11 +408,61 @@ test("restore defaults resets the whole draft before save", async (t) => {
     },
   });
   assert.equal(result.applied, 1);
-  assert.equal(result.value(1, "modelSelection"), "Pick First (scoped)");
-  assert.equal(result.value(1, "subagentMode"), "Opportunistic");
-  assert.equal(result.value(1, "toolFiltering"), "Allowed (except blocked)");
+  assert.equal(result.value(2, "modelSelection"), "Pick First (scoped)");
+  assert.equal(result.value(2, "subagentMode"), "Opportunistic");
+  assert.equal(result.value(2, "toolFiltering"), "Allowed (except blocked)");
   assert.deepEqual(result.loaded.settings, DEFAULT_MANAGER_SETTINGS);
-  assert.deepEqual(JSON.parse(readFileSync(result.userFile, "utf8")), {});
+  assert.equal(existsSync(result.userFile), false, "file is deleted, not rewritten");
+  assert.match(result.notifications.join("\n"), new RegExp(`Deleted ${result.userFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+});
+
+test("restore defaults picker shows the exact file each choice deletes and can be cancelled", async (t) => {
+  const result = await run(t, ["defaults", "cancel", "cancel"], {
+    trusted: true,
+    global: { maxLevels: 7 },
+    project: { maxThreads: 9 },
+  });
+  const picker = result.menus[1]!;
+  assert.deepEqual(picker.rows.map((row) => row.id), ["user", "project", "cancel"]);
+  assert.equal(picker.selectedId, "cancel");
+  assert.ok(picker.rows.find((row) => row.id === "user")!.help!.includes(result.userFile));
+  assert.ok(picker.rows.find((row) => row.id === "project")!.help!.includes(result.projectFile));
+  assert.match(picker.rows[0]!.help!, /Deletes this file/);
+  assert.equal(existsSync(result.userFile), true);
+  assert.equal(existsSync(result.projectFile), true);
+  assert.equal(result.applied, 0);
+});
+
+test("restore defaults Project deletes only the project file and falls back to Global scope", async (t) => {
+  const result = await run(t, ["defaults", "project", "cancel"], {
+    trusted: true,
+    global: { maxLevels: 7 },
+    project: { maxThreads: 9 },
+  });
+  assert.equal(existsSync(result.projectFile), false);
+  assert.deepEqual(JSON.parse(readFileSync(result.userFile, "utf8")), { maxLevels: 7 });
+  assert.equal(result.value(2, "maxLevels"), "7");
+  assert.equal(result.value(2, "maxThreads"), String(DEFAULT_MANAGER_SETTINGS.maxThreads));
+  assert.equal(result.value(2, "scope"), "Global");
+  assert.equal(result.applied, 1);
+});
+
+test("restore defaults Global keeps the project file and tolerates a missing file", async (t) => {
+  const result = await run(t, ["defaults", "user", "cancel"], {
+    trusted: true,
+    project: { maxThreads: 9 },
+  });
+  assert.equal(existsSync(result.userFile), false);
+  assert.equal(existsSync(result.projectFile), true);
+  assert.match(result.notifications.join("\n"), /nothing to delete/);
+  assert.equal(result.value(2, "maxThreads"), "9");
+  assert.deepEqual(result.notificationTypes.filter((type) => type === "error"), []);
+});
+
+test("restore defaults omits Project when untrusted", async (t) => {
+  const result = await run(t, ["defaults", undefined, "cancel"]);
+  assert.deepEqual(result.menus[1]!.rows.map((row) => row.id), ["user", "cancel"]);
+  assert.equal(result.applied, 0);
 });
 
 test("trusted projects without a project file start Global; confirmed Project saves sparse overrides", async (t) => {
@@ -693,7 +744,7 @@ test("Footer aggregate provenance covers all three settings while the submenu ma
   assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), { costDisplay: "pi-status", costIcon: "wallet" });
 });
 
-test("sparse Project saves inherit future global changes and defaults can override global", async (t) => {
+test("sparse Project saves inherit future global changes and Restore defaults removes the project file", async (t) => {
   const saved = await run(t, ["maxThreads", "9", "save"], {
     trusted: true, global: { maxLevels: 5, widgetMode: "minimal" }, project: {},
   });
@@ -703,9 +754,9 @@ test("sparse Project saves inherit future global changes and defaults can overri
   assert.equal(reopened.value(0, "maxLevels"), "6");
   assert.equal(reopened.value(0, "widgetMode"), "Full");
   assert.equal(reopened.value(0, "maxThreads"), "9");
-  const restored = await run(t, ["defaults", "save"], { trusted: true, root: saved.root });
-  assert.deepEqual(restored.loaded.settings, DEFAULT_MANAGER_SETTINGS);
-  assert.deepEqual(JSON.parse(readFileSync(restored.projectFile, "utf8")), { maxLevels: DEFAULT_MANAGER_SETTINGS.maxLevels });
+  const restored = await run(t, ["defaults", "project", "cancel"], { trusted: true, root: saved.root });
+  assert.equal(existsSync(restored.projectFile), false);
+  assert.deepEqual(restored.loaded.settings, { ...DEFAULT_MANAGER_SETTINGS, maxLevels: 6, widgetMode: "full" });
   assert.deepEqual(JSON.parse(readFileSync(restored.userFile, "utf8")), { maxLevels: 6, widgetMode: "full" });
 });
 
@@ -776,11 +827,11 @@ test("Tool Filtering saves to a trusted project and restores defaults without sa
   );
   assert.equal(existsSync(saved.userFile), false);
 
-  const restored = await run(t, ["toolFiltering", "all", "defaults", "cancel"]);
+  const restored = await run(t, ["toolFiltering", "all", "defaults", "user", "cancel"]);
   assert.equal(restored.value(2, "toolFiltering"), "All");
-  assert.equal(restored.value(3, "toolFiltering"), "Allowed (except blocked)");
-  assert.doesNotMatch(restored.menus[3]!.title, /unsaved/);
-  assert.equal(restored.applied, 0);
+  assert.equal(restored.value(4, "toolFiltering"), "Allowed (except blocked)");
+  assert.doesNotMatch(restored.menus[4]!.title, /unsaved/);
+  assert.equal(restored.applied, 1);
   assert.equal(existsSync(restored.userFile), false);
 });
 
@@ -830,10 +881,10 @@ test("Status Widget cancellation leaves settings unchanged and defaults restore 
   assert.doesNotMatch(escaped.menus[2]!.title, /unsaved/);
   assert.equal(escaped.loaded.settings.widgetMode, "full");
 
-  const restored = await run(t, ["defaults", "save"], {
+  const restored = await run(t, ["defaults", "user", "cancel"], {
     settings: { ...DEFAULT_MANAGER_SETTINGS, widgetMode: "minimal" },
   });
-  assert.equal(restored.value(1, "widgetMode"), "Full");
+  assert.equal(restored.value(2, "widgetMode"), "Full");
   assert.equal(restored.loaded.settings.widgetMode, "full");
 });
 
@@ -885,10 +936,10 @@ test("[lab] Final Recap cancellation, toggle reversal and restore-defaults keep 
   const reverted = await run(t, ["finalRecap", "finalRecap", "save"]);
   assert.doesNotMatch(reverted.menus[2]!.title, /unsaved/);
   assert.equal(reverted.loaded.settings.finalRecap, false);
-  const restored = await run(t, ["defaults", "save"], {
+  const restored = await run(t, ["defaults", "user", "cancel"], {
     settings: { ...DEFAULT_MANAGER_SETTINGS, finalRecap: true },
   });
-  assert.equal(restored.value(1, "finalRecap"), "Off");
+  assert.equal(restored.value(2, "finalRecap"), "Off");
   assert.equal(restored.loaded.settings.finalRecap, false);
 });
 
@@ -952,7 +1003,7 @@ test("Footer edits remain draft-only, picker Esc preserves values, and defaults 
   assert.equal(escaped.loaded.settings.costDisplay, "pi-status");
   assert.equal(escaped.loaded.settings.costValue, "total");
   assert.equal(escaped.loaded.settings.costIcon, "wallet");
-  const restored = await run(t, ["defaults", "save"], { settings });
+  const restored = await run(t, ["defaults", "user", "cancel"], { settings });
   assert.deepEqual(restored.loaded.settings, DEFAULT_MANAGER_SETTINGS);
 });
 
@@ -989,7 +1040,7 @@ test("[lab] Enable subagent extensions warns, toggles, saves and restores defaul
   const cancelled = await run(t, ["subagentExtensions", "cancel"]);
   assert.equal(cancelled.applied, 0);
   assert.equal(existsSync(cancelled.userFile), false);
-  const defaults = await run(t, ["defaults", "save"], {
+  const defaults = await run(t, ["defaults", "user", "cancel"], {
     settings: { ...DEFAULT_MANAGER_SETTINGS, subagentExtensions: true },
   });
   assert.equal(defaults.loaded.settings.subagentExtensions, false);
