@@ -94,7 +94,13 @@ export default function piSubagent(pi: ExtensionAPI): void {
     summaryTimer = undefined;
     summaryRunning = false;
   };
-  let navigation = new AgentNavigationController();
+  // Right at a tree leaf steps tree → full: leave any session collapse behind.
+  const returnToWidget = () => {
+    if (!widgetCollapsed) return;
+    widgetCollapsed = false;
+    if (context) refreshWidget(context);
+  };
+  let navigation = new AgentNavigationController(returnToWidget);
   let navigationEditor: AgentNavigationEditor | undefined;
   let navigationEditorFactory: Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0];
   let navigationGeneration = 0;
@@ -164,6 +170,19 @@ export default function piSubagent(pi: ExtensionAPI): void {
           widgetThreads().some((thread) => thread.path !== "/root"),
         collapseWidget: () => {
           widgetCollapsed = true;
+          if (context) refreshWidget(context);
+        },
+        // Left from the session-collapsed one-liner returns to full before the tree.
+        canExpand: () =>
+          manager !== undefined &&
+          context?.mode === "tui" &&
+          limits.subagentMode !== "off" &&
+          !navigation.isOpen &&
+          widgetCollapsed &&
+          limits.widgetMode === "full" &&
+          widgetThreads().some((thread) => thread.path !== "/root"),
+        expandWidget: () => {
+          widgetCollapsed = false;
           if (context) refreshWidget(context);
         },
         onError: (error) =>
@@ -493,6 +512,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
         limits.nerdFontIcons,
         rootTurnEnded,
         limits.loaderStyle,
+        widgetCollapsed && limits.widgetMode === "full",
       );
   };
   pi.on("agent_start", async (_event, ctx) => {
@@ -540,7 +560,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
     cancelSummary();
     const token = ++generation;
     closeNavigation(installEditor);
-    navigation = new AgentNavigationController();
+    navigation = new AgentNavigationController(returnToWidget);
     // session_start already belongs to the replacement session: never append the old registry here.
     if (manager) await manager.shutdown();
     inheritedTools.reset();

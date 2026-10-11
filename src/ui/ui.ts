@@ -226,6 +226,8 @@ interface AgentWidgetRenderOptions {
   loaderStyle?: LoaderStyle;
   /** RPC snapshots use a static running frame and never start an animation. */
   animate?: boolean;
+  /** Minimal line is a session collapse of full: Left steps back to full, not the browser. */
+  expandHint?: boolean;
 }
 
 function agentWidgetStatus(
@@ -377,6 +379,7 @@ export function renderAgentSummary(
     nerdFontIcons = false,
     animate = true,
     loaderStyle = "circle",
+    expandHint = false,
   }: AgentWidgetRenderOptions = {},
 ): string[] {
   const agents = new Map<string, ThreadView>();
@@ -420,7 +423,7 @@ export function renderAgentSummary(
         return theme.fg(color, `${progress ? `${progress} ` : ""}${counts[state]} ${state}`);
       })
       .join(theme.fg("muted", ", ")) +
-    (showBrowserHint && counts.running > 0 ? theme.fg("muted", " · ← browser") : "");
+    (showBrowserHint && counts.running > 0 ? theme.fg("muted", expandHint ? " · ← expand" : " · ← browser") : "");
   const right = theme.fg("muted", `↑${formatCount(input)} ↓${formatCount(output)}`);
   return [fitLine(left, right, Math.max(0, width))];
 }
@@ -432,6 +435,8 @@ export function updateWidget(
   nerdFontIcons = false,
   rootTurnEnded = false,
   loaderStyle: LoaderStyle = "circle",
+  /** True while a configured-full widget is session-collapsed to the minimal line. */
+  sessionCollapsed = false,
 ): void {
   if (!ctx.hasUI) return;
   if (!threads.some((thread) => thread.path !== "/root")) {
@@ -470,6 +475,7 @@ export function updateWidget(
             showBrowserHint: !settled,
             nerdFontIcons,
             loaderStyle,
+            expandHint: sessionCollapsed,
           }),
         invalidate: () => {},
         dispose: () => {

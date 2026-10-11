@@ -16,9 +16,15 @@ export interface AgentNavigationEditorOptions {
   /** Must return the whole navigation interaction, so repeated Left cannot reopen it. */
   openTree(): void | Promise<void>;
   canOpen(): boolean;
-  /** Session-local widget collapse; never saves the configured display mode. */
+  /** Session-local widget collapse (full → minimal); never saves the configured display mode. */
   collapseWidget?(): void | Promise<void>;
   canCollapse?(): boolean;
+  /**
+   * Session-local widget expansion (minimal → full). While it is available, Left
+   * steps toward the full widget before the tree: tree ← full ← minimal.
+   */
+  expandWidget?(): void | Promise<void>;
+  canExpand?(): boolean;
   /** Root ownership token; changing it invalidates queued transitions. */
   generation(): unknown;
   onError?(error: unknown): void;
@@ -169,10 +175,17 @@ export class AgentNavigationEditor extends CustomEditor {
     generation: unknown,
     direction: "left" | "right",
   ): void {
-    const allowed = () => direction === "left"
-      ? this.navigation.canOpen()
-      : !!this.navigation.collapseWidget && (this.navigation.canCollapse?.() ?? false);
-    if (this.pending || !allowed()) return;
+    // Left walks one step toward the tree: minimal → full first, then full → tree.
+    // Right walks one step toward minimal. The decision is rechecked in the microtask.
+    const action = (): "expand" | "tree" | "collapse" | undefined => {
+      if (direction === "right")
+        return this.navigation.collapseWidget && (this.navigation.canCollapse?.() ?? false)
+          ? "collapse" : undefined;
+      if (this.navigation.expandWidget && (this.navigation.canExpand?.() ?? false)) return "expand";
+      return this.navigation.canOpen() ? "tree" : undefined;
+    };
+    const chosen = action();
+    if (this.pending || !chosen) return;
     this.pending = direction;
     const epoch = this.inputEpoch;
     queueMicrotask(() => {
@@ -182,7 +195,7 @@ export class AgentNavigationEditor extends CustomEditor {
         !this.focused ||
         this.inputEpoch !== epoch ||
         this.navigation.generation() !== generation ||
-        !allowed() ||
+        action() !== chosen ||
         this.isShowingAutocomplete() ||
         this.getText() !== text ||
         after.line !== cursor.line ||
@@ -194,8 +207,9 @@ export class AgentNavigationEditor extends CustomEditor {
       try {
         // Call within the checked microtask: an extra Promise.then would leave
         // a gap in which root ownership could change after validation.
-        void Promise.resolve(direction === "left"
-          ? this.navigation.openTree() : this.navigation.collapseWidget!())
+        void Promise.resolve(chosen === "tree" ? this.navigation.openTree()
+          : chosen === "expand" ? this.navigation.expandWidget!()
+          : this.navigation.collapseWidget!())
           .catch((error: unknown) => this.navigation.onError?.(error))
           .finally(() => {
             this.pending = undefined;
