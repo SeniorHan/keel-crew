@@ -27,6 +27,8 @@ import { DEFAULT_MANAGER_SETTINGS } from "../src/prefs/settings.ts";
 import { bindDialogDriver, createDialogDriver, dialogDriverFor } from "./helpers/dialogDriver.ts";
 import { AGENT_COLORS, ConfigStore, parseAgentType, serializeAgentType } from "../src/prefs/config.ts";
 import {
+  AGENT_PROGRESS_INTERVAL,
+  agentProgressIcon,
   editAgentTypes,
   editorArguments,
   renderThreads,
@@ -117,7 +119,8 @@ function expectedPath(theme: Theme, path: string, color?: string): string {
 /** Zero-metric fixtures only. Counters are the literal unset label, padded, not truncated. */
 function expectedThreadLine(theme: Theme, view: ThreadView, width = 80) {
   const token = view.state === "failed" ? "error" : view.state === "paused" ? "warning" : "accent";
-  const left = `${expectedBadge(theme, view.type, view.color)} ${expectedPath(theme, view.path, view.color)} ${theme.fg(token, `[${sanitizeText(view.state)}]`)} ${sanitizeText(view.status || view.task)}`;
+  const badge = expectedBadge(theme, `${agentProgressIcon(view, false)} ${view.type}`, view.color);
+  const left = `${badge} ${expectedPath(theme, view.path, view.color)} ${theme.fg(token, `[${sanitizeText(view.state)}]`)} ${sanitizeText(view.status || view.task)}`;
   const right = theme.fg("muted", "0s ↑0 ↓0");
   return left + " ".repeat(width - visibleWidth(left) - visibleWidth(right)) + right;
 }
@@ -208,7 +211,8 @@ test("widget counter literals cover duration steps and count boundaries", () => 
   }
 });
 
-test("thread pills use the type color with contrasting text; state colors only the state label", () => {
+test("thread pills use the type color with contrasting text; state colors only the state label", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 0 });
   const channels = new Set<0 | 255>();
   for (const theme of [
     darkTheme,
@@ -224,7 +228,7 @@ test("thread pills use the type color with contrasting text; state colors only t
       const line = renderThreads([view], 120, theme)[0]!;
       channels.add(contrastChannel(theme.colors[color]));
       assert.equal(line, expectedThreadLine(theme, view, 120));
-      assert.deepEqual(backgroundCoveredText(line), [" researcher "]);
+      assert.deepEqual(backgroundCoveredText(line), [" | researcher "]);
     }
   }
   assert.ok(channels.has(0), "a light background must use black text");
@@ -255,7 +259,8 @@ test("thread pills use the type color with contrasting text; state colors only t
   assert.ok(!CONTROL.test(stripTerminalSequences(fallback)));
 });
 
-test("widget resolves the theme at render time", () => {
+test("widget resolves the theme at render time", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 0 });
   let content: unknown;
   let marker = "first";
   const tokenColor = (name: string) =>
@@ -290,10 +295,10 @@ test("widget resolves the theme at render time", () => {
   assert.doesNotMatch(second, /first</);
   const bg = (name: string) => colorToRgb(tokenColor(name)).r;
   assert.ok(
-    second.includes(`second<bg:${bg("accent")}> fallback </bg> second<fg:accent>/fallback</fg>`),
+    second.includes(`second<bg:${bg("accent")}> | fallback </bg> second<fg:accent>/fallback</fg>`),
   );
   assert.ok(
-    second.includes(`second<bg:${bg("success")}> worker </bg> second<fg:success>/worker</fg>`),
+    second.includes(`second<bg:${bg("success")}> | worker </bg> second<fg:success>/worker</fg>`),
   );
   widget.dispose();
 });
@@ -338,13 +343,17 @@ test("widget timer rerenders live elapsed and does not run when settled or headl
     assert.equal(unrefs, 1);
     assert.match(line(), /7s ↑10 ↓3$/);
     t.mock.timers.tick(1000);
-    assert.equal(renders, 1);
+    assert.equal(renders, Math.floor(1000 / AGENT_PROGRESS_INTERVAL));
     assert.match(line(), /8s ↑10 ↓3$/);
 
     renders = 0;
     updateWidget(ctx, [job({ startedAt: Date.now(), elapsedMs: 65_000 })]);
     t.mock.timers.tick(1000);
-    assert.equal(renders, 1, "replacing a live widget must dispose the previous timer");
+    assert.equal(
+      renders,
+      Math.floor(1000 / AGENT_PROGRESS_INTERVAL),
+      "replacing a live widget must dispose the previous timer",
+    );
     assert.match(line(), /1m6s ↑0 ↓0$/);
 
     renders = 0;
@@ -572,8 +581,8 @@ function pickModels(driver: ReturnType<typeof createDialogDriver>, values: strin
   driver.onChild = (component) => {
     if (typeof component.getMode !== "function") return false;
     for (const value of values) {
-      if (value === "key:ctrl-up") {
-        component.handleInput("\u001B[1;5A");
+      if (value === "key:w") {
+        component.handleInput("w");
         continue;
       }
       const item = component
@@ -751,7 +760,7 @@ test("saving model preferences stores canonical ordered models after add and reo
     pickModels(driver, [
       "openai/gpt-4.1",
       "anthropic/claude-3.7-sonnet",
-      "key:ctrl-up",
+      "key:w",
       "action:done",
     ]);
     await editAgentTypes(ctx, store);

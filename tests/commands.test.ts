@@ -157,7 +157,7 @@ test("root turn lifecycle collapses the settled preview without losing the agent
     assert.match(preview().join("\n"), /Agents[\s\S]*\/root\/done/);
     await hooks.get("agent_end")!({}, ctx);
     assert.equal(preview().length, 1);
-    assert.match(preview()[0]!, /0 running, 1 completed/);
+    assert.match(preview()[0]!, /0 running, \+ 1 completed/);
 
     await command.handler("tree", ctx);
     assert.ok(renders.some((lines) => lines.join("\n").includes("/root/done")));

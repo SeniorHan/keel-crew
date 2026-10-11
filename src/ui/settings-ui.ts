@@ -25,7 +25,7 @@ import {
 } from "../prefs/settings.ts";
 import { editAgentTypes } from "./ui.ts";
 import type { ToolEditorOptions } from "./tool-picker.ts";
-import { AGENT_LOADERS } from "./agent-loader.ts";
+import { AGENT_LOADERS, availableLoaderStyles, effectiveLoaderStyle } from "./agent-loader.ts";
 import { costIconGlyph } from "./cost-footer.ts";
 
 const LOADER_OPTIONS = LOADER_STYLES.map((id) => {
@@ -34,7 +34,7 @@ const LOADER_OPTIONS = LOADER_STYLES.map((id) => {
     id,
     label: loader.label,
     value: `${loader.frames.join(" ")} · ${Object.values(loader.states).join(" ")}`,
-    help: `Each row: all starting/running frames · completed, paused, failed, stopped.\nStarting/running: ${loader.frames.join(" ")}\nCompleted: ${loader.states.completed} · Paused: ${loader.states.paused}\nFailed: ${loader.states.failed} · Stopped: ${loader.states.stopped}\nRequires [labs] Nerd Font icons On. The loader appears before the unchanged role icon.`,
+    help: `Each row: all starting/running frames · completed, paused, failed, stopped.\nStarting/running: ${loader.frames.join(" ")}\nCompleted: ${loader.states.completed} · Paused: ${loader.states.paused}\nFailed: ${loader.states.failed} · Stopped: ${loader.states.stopped}\n${loader.requiresNerdFont ? "Requires [labs] Nerd Font icons On." : id === "braille" ? "Standard Unicode Braille; no Nerd Font needed." : "ASCII only; no special font needed."} The loader appears before the role icon when enabled.`,
   };
 });
 
@@ -294,13 +294,13 @@ async function configureAgentsDialog(
           id: "nerdFontIcons",
           label: "[labs] Nerd Font icons",
           value: draft.nerdFontIcons ? "On" : "Off",
-          help: "Experimental: display each agent type’s optional icon, preceded by its loader/state indicator.\nRequires a Nerd Font configured in your terminal; otherwise glyphs may appear as boxes.\nOff by default. Save and apply to update the widget immediately.",
+          help: "Experimental: display each agent type’s optional Nerd Font icon and unlock Nerd Font loader palettes.\nRequires a Nerd Font configured in your terminal; otherwise glyphs may appear as boxes.\nOff by default. Braille and ASCII loaders work with this Off. Save and apply to update immediately.",
         },
         {
           id: "loaderStyle",
           label: "[labs] Loader style",
-          value: AGENT_LOADERS[draft.loaderStyle].label,
-          help: "Choose Circle, Braille or Hourglass. Preview every animation frame and settled state for all families.\nRequires [labs] Nerd Font icons On. Circle is the default.\nSave and apply to update the widget immediately.",
+          value: AGENT_LOADERS[effectiveLoaderStyle(draft.loaderStyle, draft.nerdFontIcons)].label,
+          help: "Preview every animation frame and settled state.\nNerd Fonts Off: Braille (standard Unicode), ASCII, ASCII Star and ASCII Pulse. On: all palettes, including Circle and Hourglass.\nNerd-only saved styles fall back to ASCII while Nerd Fonts are off. Save and apply to update immediately.",
         },
         {
           id: "subagentExtensions",
@@ -400,10 +400,14 @@ async function configureAgentsDialog(
       } else if (action === "nerdFontIcons") {
         draft.nerdFontIcons = !draft.nerdFontIcons;
       } else if (action === "loaderStyle") {
-        const style = await dialogMenu(ctx, "[labs] Loader style", LOADER_OPTIONS, {
-          selectedId: draft.loaderStyle,
-        });
-        if (LOADER_STYLES.includes(style as LoaderStyle)) draft.loaderStyle = style as LoaderStyle;
+        const styles = availableLoaderStyles(draft.nerdFontIcons);
+        const style = await dialogMenu(
+          ctx,
+          "[labs] Loader style",
+          LOADER_OPTIONS.filter((option) => styles.includes(option.id)),
+          { selectedId: effectiveLoaderStyle(draft.loaderStyle, draft.nerdFontIcons) },
+        );
+        if (styles.includes(style as LoaderStyle)) draft.loaderStyle = style as LoaderStyle;
       } else if (action === "subagentExtensions") {
         draft.subagentExtensions = !draft.subagentExtensions;
       } else if (action === "finalRecap") {

@@ -71,7 +71,10 @@ test("circle progress frames shape-shift deterministically and settled indicator
     }
     assert.equal(agentProgressIcon(agent, true, 8 * AGENT_PROGRESS_INTERVAL), frames[0]);
     assert.equal(agentProgressIcon(agent, true, AGENT_PROGRESS_INTERVAL - 1), frames[0]);
-    assert.equal(agentProgressIcon(agent, false, AGENT_PROGRESS_INTERVAL), undefined);
+    assert.equal(
+      agentProgressIcon(agent, false, AGENT_PROGRESS_INTERVAL),
+      AGENT_LOADERS.ascii.frames[1],
+    );
     assert.equal(agentProgressIcon(agent, true, AGENT_PROGRESS_INTERVAL, false), frames[0]);
     assert.equal(
       agentProgressIcon({ state }, true, 0),
@@ -82,7 +85,7 @@ test("circle progress frames shape-shift deterministically and settled indicator
   for (const state of ["paused", "stopped", "completed", "failed"] as const) {
     for (const now of [0, AGENT_PROGRESS_INTERVAL, 2000]) {
       assert.equal(agentProgressIcon(thread(state), true, now), AGENT_LOADERS.circle.states[state]);
-      assert.equal(agentProgressIcon(thread(state), false, now), undefined);
+      assert.equal(agentProgressIcon(thread(state), false, now), AGENT_LOADERS.ascii.states[state]);
     }
   }
 });
@@ -152,20 +155,24 @@ test("full and minimal widgets repaint at animation cadence, dispose timers, and
       },
     },
   } as unknown as ExtensionContext;
-  for (const mode of ["full", "minimal"] as const) {
-    updateWidget(ctx, [thread()], mode, true);
-    assert.equal(intervals.mock.calls.at(-1)!.arguments[1], AGENT_PROGRESS_INTERVAL);
-    const initial = plain(component!.render(100));
-    const previousRenders = renders;
-    t.mock.timers.tick(AGENT_PROGRESS_INTERVAL - 1);
-    assert.equal(renders, previousRenders);
-    t.mock.timers.tick(1);
-    assert.equal(renders, previousRenders + 1);
-    assert.notEqual(plain(component!.render(100)), initial);
-    component!.dispose();
-    const disposedRenders = renders;
-    t.mock.timers.tick(1000);
-    assert.equal(renders, disposedRenders);
+  for (const nerdFontIcons of [true, false]) {
+    for (const mode of ["full", "minimal"] as const) {
+      updateWidget(ctx, [thread()], mode, nerdFontIcons);
+      assert.equal(intervals.mock.calls.at(-1)!.arguments[1], AGENT_PROGRESS_INTERVAL);
+      const initial = plain(component!.render(100));
+      assert.equal(initial.includes(roleIcon), nerdFontIcons && mode === "full");
+      if (!nerdFontIcons) assert.doesNotMatch(initial, /\p{Co}/u);
+      const previousRenders = renders;
+      t.mock.timers.tick(AGENT_PROGRESS_INTERVAL - 1);
+      assert.equal(renders, previousRenders);
+      t.mock.timers.tick(1);
+      assert.equal(renders, previousRenders + 1);
+      assert.notEqual(plain(component!.render(100)), initial);
+      component!.dispose();
+      const disposedRenders = renders;
+      t.mock.timers.tick(1000);
+      assert.equal(renders, disposedRenders);
+    }
   }
   const animatedCalls = intervals.mock.callCount();
   for (const state of ["paused", "stopped", "completed", "failed"] as const) {
@@ -189,65 +196,67 @@ test("full and minimal widgets repaint at animation cadence, dispose timers, and
   assert.equal(intervals.mock.callCount(), animatedCalls);
 });
 
-test("status tree reuses its polling timer, speeds up only while active, and stops after disposal", (t) => {
-  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: 0 });
-  const intervals = t.mock.method(globalThis, "setInterval", globalThis.setInterval);
-  let current = thread();
-  let renders = 0;
-  const dialog = new StatusDialog(
-    {
-      requestRender() {
-        renders++;
+for (const nerdFontIcons of [true, false]) {
+  test(`status tree reuses active polling and disposes timers with Nerd Fonts ${nerdFontIcons}`, (t) => {
+    t.mock.timers.enable({ apis: ["Date", "setInterval"], now: 0 });
+    const intervals = t.mock.method(globalThis, "setInterval", globalThis.setInterval);
+    let current = thread();
+    let renders = 0;
+    const dialog = new StatusDialog(
+      {
+        requestRender() {
+          renders++;
+        },
+        terminal: { rows: 24 },
       },
-      terminal: { rows: 24 },
-    },
-    theme,
-    { list: () => [current], get: () => current } as unknown as ThreadService,
-    () => {},
-    undefined,
-    undefined,
-    undefined,
-    true,
-  );
-  try {
-    dialog.startRefresh();
-    assert.equal(intervals.mock.calls.at(-1)!.arguments[1], AGENT_PROGRESS_INTERVAL);
-    const first = plain(dialog.render(120));
-    t.mock.timers.tick(AGENT_PROGRESS_INTERVAL);
-    assert.equal(renders, 1);
-    assert.notEqual(plain(dialog.render(120)), first);
-    current = thread("completed");
-    assert.ok(plain(dialog.render(120)).includes(`${roleIcon} worker`));
-    assert.equal(
-      intervals.mock.calls.at(-1)!.arguments[1],
-      1000,
-      "settled uses ordinary status polling, not animation",
+      theme,
+      { list: () => [current], get: () => current } as unknown as ThreadService,
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      nerdFontIcons,
     );
-    const atSettlement = renders;
-    t.mock.timers.tick(AGENT_PROGRESS_INTERVAL);
-    assert.equal(renders, atSettlement);
-    current = thread("starting");
-    dialog.render(120);
-    assert.equal(intervals.mock.calls.at(-1)!.arguments[1], AGENT_PROGRESS_INTERVAL);
-    const beforeDispose = renders;
-    dialog.dispose();
-    t.mock.timers.tick(2000);
-    dialog.render(120);
-    assert.equal(renders, beforeDispose);
-    assert.equal(intervals.mock.callCount(), 3);
-  } finally {
-    dialog.dispose();
-  }
-});
+    try {
+      dialog.startRefresh();
+      assert.equal(intervals.mock.calls.at(-1)!.arguments[1], AGENT_PROGRESS_INTERVAL);
+      const first = plain(dialog.render(120));
+      t.mock.timers.tick(AGENT_PROGRESS_INTERVAL);
+      assert.equal(renders, 1);
+      assert.notEqual(plain(dialog.render(120)), first);
+      current = thread("completed");
+      const label = `${nerdFontIcons ? `${AGENT_LOADERS.circle.states.completed} ${roleIcon}` : AGENT_LOADERS.ascii.states.completed} worker`;
+      assert.ok(plain(dialog.render(120)).includes(label));
+      if (!nerdFontIcons) assert.doesNotMatch(plain(dialog.render(120)), /\p{Co}/u);
+      assert.equal(
+        intervals.mock.calls.at(-1)!.arguments[1],
+        1000,
+        "settled uses ordinary status polling, not animation",
+      );
+      const atSettlement = renders;
+      t.mock.timers.tick(AGENT_PROGRESS_INTERVAL);
+      assert.equal(renders, atSettlement);
+      current = thread("starting");
+      dialog.render(120);
+      assert.equal(intervals.mock.calls.at(-1)!.arguments[1], AGENT_PROGRESS_INTERVAL);
+      const beforeDispose = renders;
+      dialog.dispose();
+      t.mock.timers.tick(2000);
+      dialog.render(120);
+      assert.equal(renders, beforeDispose);
+      assert.equal(intervals.mock.callCount(), 3);
+    } finally {
+      dialog.dispose();
+    }
+  });
+}
 
-test("settled and disabled live headers allocate no animation timer", async (t) => {
+test("settled live headers allocate no animation timer with Nerd Fonts on or off", async (t) => {
   const intervals = t.mock.method(globalThis, "setInterval", globalThis.setInterval);
   const cases: Array<{ state: ThreadView["state"]; enabled: boolean }> = [
-    { state: "running", enabled: false },
-    ...(["paused", "stopped", "completed", "failed"] as const).map((state) => ({
-      state,
-      enabled: true,
-    })),
+    ...(["paused", "stopped", "completed", "failed"] as const).flatMap((state) =>
+      [true, false].map((enabled) => ({ state, enabled })),
+    ),
   ];
   for (const { state, enabled } of cases) {
     const view = new LiveAgentView(
@@ -273,56 +282,62 @@ test("settled and disabled live headers allocate no animation timer", async (t) 
   assert.equal(intervals.mock.callCount(), 0);
 });
 
-test("live headers animate without transcript events, freeze on settlement, resume and dispose", async (t) => {
-  t.mock.timers.enable({ apis: ["Date", "setInterval", "setTimeout"], now: 0 });
-  const intervals = t.mock.method(globalThis, "setInterval", globalThis.setInterval);
-  let listener: TranscriptListener = () => {};
-  let renders = 0;
-  const view = new LiveAgentView(
-    {
-      requestRender() {
-        renders++;
+for (const nerdFontIcons of [true, false]) {
+  test(`live headers animate, settle, resume and dispose with Nerd Fonts ${nerdFontIcons}`, async (t) => {
+    t.mock.timers.enable({ apis: ["Date", "setInterval", "setTimeout"], now: 0 });
+    const intervals = t.mock.method(globalThis, "setInterval", globalThis.setInterval);
+    let listener: TranscriptListener = () => {};
+    let renders = 0;
+    const view = new LiveAgentView(
+      {
+        requestRender() {
+          renders++;
+        },
+        terminal: { rows: 10 },
       },
-      terminal: { rows: 10 },
-    },
-    theme,
-    {
-      observeTranscript(_path: string, receive: TranscriptListener) {
-        listener = receive;
-        return { snapshot: snapshot(thread()), unsubscribe() {} };
-      },
-    } as unknown as ThreadService,
-    "/root/worker",
-    { scrollTop: 0, follow: true },
-    () => {},
-    true,
-  );
-  try {
-    await Promise.resolve();
-    t.mock.timers.tick(16);
-    const initialHeader = view.render(120)[0];
-    renders = 0;
-    assert.equal(intervals.mock.calls[0]!.arguments[1], AGENT_PROGRESS_INTERVAL);
-    t.mock.timers.tick(AGENT_PROGRESS_INTERVAL);
-    t.mock.timers.tick(16);
-    assert.equal(renders, 1);
-    assert.notEqual(view.render(120)[0], initialHeader);
-    listener(snapshot(thread("completed"), 1));
-    t.mock.timers.tick(16);
-    const staticHeader = view.render(120)[0];
-    assert.ok(staticHeader!.includes(`${roleIcon} worker`));
-    renders = 0;
-    t.mock.timers.tick(2000);
-    assert.equal(renders, 0);
-    assert.equal(view.render(120)[0], staticHeader);
-    listener(snapshot(thread("running"), 2));
-    t.mock.timers.tick(16);
-    assert.equal(intervals.mock.callCount(), 2);
-    view.dispose();
-    renders = 0;
-    t.mock.timers.tick(2000);
-    assert.equal(renders, 0);
-  } finally {
-    view.dispose();
-  }
-});
+      theme,
+      {
+        observeTranscript(_path: string, receive: TranscriptListener) {
+          listener = receive;
+          return { snapshot: snapshot(thread()), unsubscribe() {} };
+        },
+      } as unknown as ThreadService,
+      "/root/worker",
+      { scrollTop: 0, follow: true },
+      () => {},
+      nerdFontIcons,
+    );
+    try {
+      await Promise.resolve();
+      t.mock.timers.tick(16);
+      const initialHeader = view.render(120)[0];
+      renders = 0;
+      assert.equal(intervals.mock.calls[0]!.arguments[1], AGENT_PROGRESS_INTERVAL);
+      t.mock.timers.tick(AGENT_PROGRESS_INTERVAL);
+      t.mock.timers.tick(16);
+      assert.equal(renders, 1);
+      assert.notEqual(view.render(120)[0], initialHeader);
+      listener(snapshot(thread("completed"), 1));
+      t.mock.timers.tick(16);
+      const staticHeader = view.render(120)[0];
+      assert.equal(staticHeader!.includes(`${roleIcon} worker`), nerdFontIcons);
+      if (!nerdFontIcons) {
+        assert.ok(staticHeader!.includes(`${AGENT_LOADERS.ascii.states.completed} worker`));
+        assert.doesNotMatch(staticHeader!, /\p{Co}/u);
+      }
+      renders = 0;
+      t.mock.timers.tick(2000);
+      assert.equal(renders, 0);
+      assert.equal(view.render(120)[0], staticHeader);
+      listener(snapshot(thread("running"), 2));
+      t.mock.timers.tick(16);
+      assert.equal(intervals.mock.callCount(), 2);
+      view.dispose();
+      renders = 0;
+      t.mock.timers.tick(2000);
+      assert.equal(renders, 0);
+    } finally {
+      view.dispose();
+    }
+  });
+}

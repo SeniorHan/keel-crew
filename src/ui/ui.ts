@@ -92,7 +92,7 @@ export function agentTypeLabel(
   const role =
     nerdFontIcons && typeof icon === "string" && /^\p{Co}$/u.test(icon) ? `${icon} ` : "";
   const progress =
-    nerdFontIcons && loaderIcon && isAgentLoaderGlyph(loaderIcon) ? `${loaderIcon} ` : "";
+    loaderIcon && isAgentLoaderGlyph(loaderIcon, nerdFontIcons) ? `${loaderIcon} ` : "";
   return `${progress}${role}${sanitizeText(type)}`;
 }
 
@@ -460,11 +460,8 @@ export function updateWidget(
     "pi-subagent",
     (tui) => {
       let timer: ReturnType<typeof setInterval> | undefined;
-      if (snapshot.some(isLive) && (mode === "full" || nerdFontIcons)) {
-        timer = setInterval(
-          () => tui.requestRender(),
-          nerdFontIcons ? AGENT_PROGRESS_INTERVAL : 1000,
-        );
+      if (snapshot.some(isLive)) {
+        timer = setInterval(() => tui.requestRender(), AGENT_PROGRESS_INTERVAL);
         timer.unref();
       }
       return {

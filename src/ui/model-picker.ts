@@ -102,6 +102,7 @@ export class OrderedModelEditorComponent extends Container {
   private readonly searchInput = new Input({ placeholder: "Search models" });
   private draft: string[];
   private pickerQuery = "";
+  private searching = false;
   private currentItems: ModelSelectItem[] = [];
   private selectList = new SelectList([], 1, getSelectListTheme(), MODEL_EDITOR_LAYOUT);
   private _focused = false;
@@ -133,14 +134,12 @@ export class OrderedModelEditorComponent extends Container {
         "muted",
         this.withScopeWarning(
           this.suggestedScores.size
-            ? "Selected first; suggested matches scoped first, then other models; the rest A–Z. Type to search."
-            : "Selected first. Search by provider/id or model name; other models A–Z.",
+            ? "Selected first; suggested matches scoped first, then other models; the rest A–Z. / to search."
+            : "Selected first. / to search by provider/id or model name; other models A–Z.",
         ),
       ),
     );
-    this.footerText.setText(
-      this.theme.fg("dim", "↑↓ select · Enter toggle · Ctrl+↑↓ reorder · Ctrl+S done · Esc cancel"),
-    );
+    this.updateFooter();
     this.addChild(this.searchInput);
     this.refreshPickerList();
   }
@@ -151,7 +150,7 @@ export class OrderedModelEditorComponent extends Container {
 
   set focused(value: boolean) {
     this._focused = value;
-    this.searchInput.focused = value;
+    this.searchInput.focused = value && this.searching;
   }
 
   getMode(): "picker" {
@@ -235,8 +234,13 @@ export class OrderedModelEditorComponent extends Container {
       this.onDone([...this.draft]);
       return;
     }
-    const earlier = matchesKey(keyData, Key.ctrl("up"));
-    const later = matchesKey(keyData, Key.ctrl("down"));
+    if (matchesKey(keyData, Key.tab) || (!this.searching && keyData === "/")) {
+      this.setSearching(!this.searching);
+      this.tui.requestRender();
+      return;
+    }
+    const earlier = !this.searching && keyData === "w";
+    const later = !this.searching && keyData === "s";
     if (earlier || later) {
       const selected = this.selectList.getSelectedItem()?.value;
       const index = selected === undefined ? -1 : this.draft.indexOf(selected);
@@ -261,6 +265,7 @@ export class OrderedModelEditorComponent extends Container {
       this.searchInput.handleInput(keyData);
       const nextQuery = this.searchInput.getValue();
       if (nextQuery !== this.pickerQuery) {
+        this.setSearching(true);
         this.pickerQuery = nextQuery;
         // Keep selected preferences visible, but focus the first search result
         // so typing a query and pressing Enter still adds the matching model.
@@ -268,6 +273,23 @@ export class OrderedModelEditorComponent extends Container {
       }
     }
     this.tui.requestRender();
+  }
+
+  private setSearching(value: boolean): void {
+    this.searching = value;
+    this.searchInput.focused = this._focused && value;
+    this.updateFooter();
+  }
+
+  private updateFooter(): void {
+    this.footerText.setText(
+      this.theme.fg(
+        "dim",
+        this.searching
+          ? "↑↓ select · Enter toggle · Tab browse · Ctrl+S done · Esc cancel"
+          : "↑↓ select · Enter toggle · w/s reorder · / search · Ctrl+S done · Esc cancel",
+      ),
+    );
   }
 
   private refreshPickerList(selectedValue?: string, focusSearchResult = false): void {

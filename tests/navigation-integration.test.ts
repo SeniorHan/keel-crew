@@ -300,7 +300,7 @@ for (const widgetMode of ["full", "minimal"] as const) {
       threads[4]!.state = "completed";
       threads[5]!.state = "completed";
       await hooks.get("agent_end")!({}, ctx);
-      assert.match(widget()[0]!, /0 running, 3 completed/);
+      assert.match(widget()[0]!, /0 running, \+ 3 completed/);
       assert.doesNotMatch(widget()[0]!, /failed|stopped|paused/);
 
       // All settled: even the minimal status line disappears on the next task.

@@ -23,6 +23,7 @@ import {
   StatusDialog,
   AgentNavigationController,
 } from "../src/ui/status-ui.ts";
+import { AGENT_PROGRESS_INTERVAL } from "../src/ui/agent-loader.ts";
 import { LiveAgentView } from "../src/ui/live-agent-view.ts";
 import { createDialogDriver } from "./helpers/dialogDriver.ts";
 import type { ThreadService, ThreadView } from "../src/types.ts";
@@ -574,7 +575,7 @@ test("showAgentTree uses one dialog session, shows live updates, and returns to 
   const tree = launchTree(() => threads);
   try {
     const dialog = await until(() => tree.mounted[0], "tree");
-    assert.equal(clock.delay, 1000);
+    assert.equal(clock.delay, AGENT_PROGRESS_INTERVAL);
     assert.equal(clock.timers.size, 1);
     assert.equal(treeTitle(dialog.render(100)).agents, 2);
 
@@ -954,7 +955,8 @@ test("host mount rejection restores scoped keybindings even without component di
   assert.equal(controller.isOpen, false);
 });
 
-test("agent tree shows the type badge and mutes inactive agents with the pi muted token", () => {
+test("agent tree shows the type badge and mutes inactive agents with the pi muted token", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 0 });
   const tagged = {
     fg: (token: string, text: string) => `<${token}>${text}</${token}>`,
     colors: theme.colors,
@@ -971,8 +973,8 @@ test("agent tree shows the type badge and mutes inactive agents with the pi mute
     () => {},
   );
   const out = dialog.render(100).join("\n");
-  assert.match(out, /\[coder\]<text>  \/root\/a/);
-  assert.match(out, /<muted>[^\n]*reviewer[^\n]*\/root\/b[^\n]*<\/muted>/);
+  assert.match(out, /\[\| coder\]<text>  \/root\/a/);
+  assert.match(out, /<muted># reviewer<\/muted>[^\n]*\/root\/b[^\n]*<\/muted>/);
   assert.equal(out.includes("[reviewer]"), false);
 });
 test("agent tree uses two lines for right-aligned identity metrics and full-width activity", () => {

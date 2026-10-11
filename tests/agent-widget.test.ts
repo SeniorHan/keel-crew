@@ -4,6 +4,7 @@ import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { Theme, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { AGENT_COLORS } from "../src/prefs/config.ts";
 import { buildStatusTree, type StatusRow } from "../src/ui/status-ui.ts";
+import { AGENT_PROGRESS_INTERVAL } from "../src/ui/agent-loader.ts";
 import { renderAgentSummary, renderAgentTree, updateWidget } from "../src/ui/ui.ts";
 import type { ThreadView } from "../src/types.ts";
 
@@ -606,7 +607,7 @@ test("widget collapses only after the root turn ends and every real agent is idl
       updateWidget(ctx, agents, mode, false, true);
       const lines = renderLast();
       assert.equal(lines.length, 1);
-      assert.match(lines[0]!, /^0 running, 1 stopped, 1 failed, 1 paused, 1 completed/);
+      assert.match(lines[0]!, /^0 running, # 1 stopped, ! 1 failed, = 1 paused, \+ 1 completed/);
       assert.doesNotMatch(lines[0]!, /Agents|\/root|Press ←/);
     }
 
@@ -625,7 +626,8 @@ test("widget collapses only after the root turn ends and every real agent is idl
   }
 });
 
-test("minimal summary counts unique real agents with semantic colors and active-only token sums", () => {
+test("minimal summary counts unique real agents with semantic colors and active-only token sums", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 0 });
   const threads = [
     thread("/root", { inputTokens: 999_999, outputTokens: 999_999 }),
     thread("/root/a", { inputTokens: 1_100, outputTokens: 12 }),
@@ -646,14 +648,14 @@ test("minimal summary counts unique real agents with semantic colors and active-
   const line = lines[0]!;
   assert.match(
     plain(lines)[0]!,
-    /^3 running, 2 stopped, 1 failed, 1 paused, 1 completed · ← browser\s+↑1\.4k ↓39$/,
+    /^\| 3 running, # 2 stopped, ! 1 failed, = 1 paused, \+ 1 completed · ← browser\s+↑1\.4k ↓39$/,
   );
   for (const [color, text] of [
-    ["accent", "3 running"],
-    ["muted", "2 stopped"],
-    ["error", "1 failed"],
-    ["warning", "1 paused"],
-    ["success", "1 completed"],
+    ["accent", "| 3 running"],
+    ["muted", "# 2 stopped"],
+    ["error", "! 1 failed"],
+    ["warning", "= 1 paused"],
+    ["success", "+ 1 completed"],
     ["muted", "↑1.4k ↓39"],
   ] as const) {
     assert.ok(line.includes(theme.fg(color, text)), `${color}: ${text}`);
@@ -663,7 +665,8 @@ test("minimal summary counts unique real agents with semantic colors and active-
   assert.deepEqual(threads, before);
 });
 
-test("minimal summary handles empty and settled agents, metrics boundaries, and narrow widths", () => {
+test("minimal summary handles empty and settled agents, metrics boundaries, and narrow widths", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 0 });
   assert.deepEqual(renderAgentSummary([], 80, theme), []);
   assert.deepEqual(renderAgentSummary([thread("/root")], 80, theme), []);
   const settled = [
@@ -671,7 +674,7 @@ test("minimal summary handles empty and settled agents, metrics boundaries, and 
   ];
   const settledLines = plain(renderAgentSummary(settled, 80, theme));
   assert.equal(settledLines.length, 1);
-  assert.match(settledLines[0]!, /^0 running, 1 completed\s+↑0 ↓0$/);
+  assert.match(settledLines[0]!, /^0 running, \+ 1 completed\s+↑0 ↓0$/);
 
   const threads = [
     thread("/root/a", { inputTokens: 1_000_000, outputTokens: 1_500_000 }),
@@ -683,7 +686,7 @@ test("minimal summary handles empty and settled agents, metrics boundaries, and 
   ];
   assert.match(
     plain(renderAgentSummary(threads, 100, theme))[0]!,
-    /^3 running, 20 paused · ← browser\s+↑1m ↓1.5m$/,
+    /^\| 3 running, = 20 paused · ← browser\s+↑1m ↓1.5m$/,
   );
   const counters = theme.fg("muted", "↑1m ↓1.5m");
   for (const width of [0, 1, 2, 4, 9, 10, 20, 40, 80, 100]) {
@@ -789,12 +792,11 @@ test("full widget status strip resolves the current theme at render time", () =>
   component.dispose();
 });
 
-test("minimal widget resolves live themes without allocating elapsed-time timers", (t) => {
+test("minimal widget resolves live themes and allocates only its loader animation timer", (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: 0 });
   let content: unknown;
   let current = theme;
-  const interval = t.mock.method(globalThis, "setInterval", () => {
-    throw new Error("minimal mode has no elapsed time to repaint");
-  });
+  const interval = t.mock.method(globalThis, "setInterval", globalThis.setInterval);
   const ctx = {
     hasUI: true,
     mode: "tui",
@@ -816,16 +818,17 @@ test("minimal widget resolves live themes without allocating elapsed-time timers
     }
   )({ requestRender() {} });
   const first = component.render(80);
-  assert.ok(first[0]!.includes(current.fg("accent", "1 running")));
+  assert.ok(first[0]!.includes(current.fg("accent", "| 1 running")));
   current = testTheme("light");
   component.invalidate();
   const second = component.render(80);
   assert.notDeepEqual(second, first);
   assert.deepEqual(plain(second), plain(first));
-  assert.ok(second[0]!.includes(current.fg("accent", "1 running")));
+  assert.ok(second[0]!.includes(current.fg("accent", "| 1 running")));
   assert.ok(second[0]!.endsWith(current.fg("muted", "↑12 ↓3")));
   assert.equal(second.length, 1);
   assert.ok(second[0]!.includes(current.fg("muted", " · ← browser")));
-  assert.equal(interval.mock.callCount(), 0);
+  assert.equal(interval.mock.callCount(), 1);
+  assert.equal(interval.mock.calls[0]!.arguments[1], AGENT_PROGRESS_INTERVAL);
   component.dispose();
 });

@@ -18,7 +18,7 @@ import {
 import { createDialogDriver } from "./helpers/dialogDriver.ts";
 
 const theme = { fg: (_color: string, text: string) => text } as Theme;
-type Menu = { title: string; rows: DialogRow[] };
+type Menu = { title: string; rows: DialogRow[]; selectedId: string | undefined };
 
 /** Runs configureAgents with scripted menu/input choices and reports what reached disk. */
 async function run(
@@ -47,6 +47,7 @@ async function run(
     onMenu: (menu) =>
       menus.push({
         title: menu.title,
+        selectedId: menu.getSelectedId(),
         rows: menu.rows.map((row) => ({ ...row })),
       }),
   });
@@ -86,7 +87,9 @@ async function run(
 
 test("[labs] Loader style previews all families and states together, and saves every selection", async (t) => {
   for (const loaderStyle of LOADER_STYLES) {
-    const result = await run(t, ["loaderStyle", loaderStyle, "save"]);
+    const result = await run(t, ["loaderStyle", loaderStyle, "save"], {
+      settings: { ...DEFAULT_MANAGER_SETTINGS, nerdFontIcons: true },
+    });
     const chooser = result.menus[1]!;
     assert.equal(result.menus[0]!.rows.find((row) => row.id === "loaderStyle")!.label, "[labs] Loader style");
     assert.equal(result.value(0, "loaderStyle"), "Circle");
@@ -126,7 +129,11 @@ test("[labs] Loader style cancel, restore-defaults and narrow layouts preserve d
   });
   assert.equal(restored.loaded.settings.loaderStyle, "circle");
   for (const width of [20, 40, 60]) {
-    const result = await run(t, ["loaderStyle", "hourglass", "save"], { width, trusted: true });
+    const result = await run(t, ["loaderStyle", "hourglass", "save"], {
+      width,
+      trusted: true,
+      settings: { ...DEFAULT_MANAGER_SETTINGS, nerdFontIcons: true },
+    });
     assert.equal(result.loaded.settings.loaderStyle, "hourglass");
     assert.ok(result.renders.every((lines) => lines.every((line) => visibleWidth(line) <= width)));
   }
@@ -650,4 +657,49 @@ test("[labs] Enable subagent extensions warns, toggles, saves and restores defau
     assert.equal(narrow.loaded.settings.subagentExtensions, true);
     assert.ok(narrow.renders.every((lines) => lines.every((line) => visibleWidth(line) <= width)));
   }
+});
+test("Nerd Fonts off filters loader previews, uses ASCII fallback, and saves non-Nerd selections", async (t) => {
+  const styles = ["braille", "ascii", "ascii-star", "ascii-pulse"] as const;
+  for (const loaderStyle of styles) {
+    const result = await run(t, ["loaderStyle", loaderStyle, "save"]);
+    assert.equal(result.value(0, "loaderStyle"), AGENT_LOADERS.ascii.label);
+    assert.deepEqual(
+      result.menus[1]!.rows.map((row) => row.id),
+      [...styles],
+    );
+    assert.equal(result.menus[1]!.selectedId, "ascii");
+    for (const row of result.menus[1]!.rows) {
+      assert.doesNotMatch(row.value!, /\p{Co}/u);
+      assert.doesNotMatch(row.help!, /Requires \[labs\] Nerd Font icons On/);
+    }
+    assert.equal(result.loaded.settings.loaderStyle, loaderStyle);
+    assert.equal(result.loaded.settings.nerdFontIcons, false);
+    assert.equal(result.value(2, "loaderStyle"), AGENT_LOADERS[loaderStyle].label);
+  }
+});
+
+test("turning Nerd Fonts off preserves the saved family and turning them back on restores it", async (t) => {
+  const settings = {
+    ...DEFAULT_MANAGER_SETTINGS,
+    nerdFontIcons: true,
+    loaderStyle: "hourglass",
+  } as const;
+  const off = await run(t, ["nerdFontIcons", "loaderStyle", undefined, "save"], { settings });
+  assert.equal(off.value(0, "loaderStyle"), AGENT_LOADERS.hourglass.label);
+  assert.equal(off.value(1, "loaderStyle"), AGENT_LOADERS.ascii.label);
+  assert.equal(off.menus[2]!.selectedId, "ascii");
+  assert.equal(off.loaded.settings.loaderStyle, "hourglass");
+  assert.equal(off.loaded.settings.nerdFontIcons, false);
+  const restored = await run(
+    t,
+    ["nerdFontIcons", "nerdFontIcons", "loaderStyle", undefined, "save"],
+    { settings },
+  );
+  assert.equal(restored.value(2, "loaderStyle"), AGENT_LOADERS.hourglass.label);
+  assert.equal(restored.menus[3]!.selectedId, "hourglass");
+  assert.deepEqual(
+    restored.menus[3]!.rows.map((row) => row.id),
+    [...LOADER_STYLES],
+  );
+  assert.equal(restored.loaded.settings.loaderStyle, "hourglass");
 });

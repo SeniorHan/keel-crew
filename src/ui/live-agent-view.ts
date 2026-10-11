@@ -210,11 +210,7 @@ export class LiveAgentView {
 
   private syncProgress(): void {
     const state = this.snapshot?.thread?.state;
-    const active =
-      this.nerdFontIcons &&
-      !this.disposed &&
-      !this.error &&
-      (state === "starting" || state === "running");
+    const active = !this.disposed && !this.error && (state === "starting" || state === "running");
     if (!active) {
       if (this.progressTimer !== undefined) clearInterval(this.progressTimer);
       this.progressTimer = undefined;

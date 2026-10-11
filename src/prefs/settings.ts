@@ -28,7 +28,7 @@ export type CostValue = (typeof COST_VALUES)[number];
 export const COST_ICONS = ["money", "coins", "wallet"] as const;
 export type CostIcon = (typeof COST_ICONS)[number];
 
-export const LOADER_STYLES = ["circle", "braille", "hourglass"] as const;
+export const LOADER_STYLES = ["circle", "braille", "hourglass", "ascii", "ascii-star", "ascii-pulse"] as const;
 export type LoaderStyle = (typeof LOADER_STYLES)[number];
 
 export const TOOL_FILTERING_MODES = ["allowed", "all-except-blocked", "all"] as const;
@@ -120,7 +120,7 @@ function requirement(key: (typeof KEYS)[number]): string {
   if (key === "costDisplay") return "costDisplay must be pi-footer-event, pi-footer-status or pi-status";
   if (key === "costValue") return "costValue must be subagents or total";
   if (key === "costIcon") return "costIcon must be money, coins or wallet";
-  if (key === "loaderStyle") return "loaderStyle must be circle, braille or hourglass";
+  if (key === "loaderStyle") return `loaderStyle must be one of: ${LOADER_STYLES.join(", ")}`;
   if (key === "toolFiltering") return "toolFiltering must be allowed, all-except-blocked or all";
   if (key === "modelSelection")
     return "modelSelection must be pick-first-available, pick-first-scoped or use-current";

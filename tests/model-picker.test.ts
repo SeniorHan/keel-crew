@@ -8,8 +8,9 @@ initTheme();
 
 const DOWN = "\u001B[B";
 const ENTER = "\r";
-const CTRL_UP = "\u001B[1;5A";
-const CTRL_DOWN = "\u001B[1;5B";
+const MOVE_UP = "w";
+const MOVE_DOWN = "s";
+const TAB = "\t";
 const CTRL_S = "\u0013";
 const ESC = "\u001B";
 
@@ -90,9 +91,10 @@ test("ordered model editor searches, annotates scope, and toggles without leavin
 
   component.focused = true;
   assert.equal(component.getMode(), "picker");
-  assert.equal(component.getSearchInput()?.focused, true);
+  assert.equal(component.getSearchInput()?.focused, false);
 
   press(component, ..."claude");
+  assert.equal(component.getSearchInput().focused, true);
   assert.equal(component.getSelectList().getSelectedItem()?.value, "anthropic/claude-3.7-sonnet");
   press(component, ENTER);
   assert.deepEqual(component.getDraftModels(), ["anthropic/claude-3.7-sonnet"]);
@@ -172,7 +174,7 @@ test("bundled suggestions match version separator variants without changing raw 
       "anthropic/claude-sonnet-5-4",
     ],
   );
-  press(component, ..."sonnet-5.5");
+  press(component, "/", ..."sonnet-5.5");
   assert.equal(modelItems(component).length, 3);
   press(component, ENTER);
   assert.deepEqual(component.getDraftModels(), ["anthropic/claude-sonnet-5-5"]);
@@ -279,7 +281,7 @@ test("group headings keep selected models and footer visible on short terminals"
       assert.ok(lines.every((line) => visibleWidth(line) <= width));
       if (width >= 80) {
         assert.match(lines.join("\n"), new RegExp(`› \\[ \\] ${value}`));
-        assert.match(lines.join("\n"), /Ctrl\+↑↓ reorder.*Esc cancel/);
+        assert.match(lines.join("\n"), /w\/s reorder.*Esc cancel/);
         assert.match(stripTerminalSequences(lines.at(-1)!), /^╰.*╯$/);
       }
     }
@@ -335,7 +337,7 @@ test("ordered model editor keeps raw identities while sanitizing picker labels",
   assert.deepEqual(done, [[rawIdentity]]);
 });
 
-test("Ctrl up/down reorder selected models, preserve selection, and stop at boundaries", () => {
+test("w/s reorder selected models, preserve selection, and stop at boundaries", () => {
   const { component, done } = createComponent({
     initialModels: ["custom/missing", "openai/gpt-4.1", "anthropic/claude-3.7-sonnet"],
     scopedModels: ["anthropic/claude-3.7-sonnet", "openai/gpt-4.1"],
@@ -344,9 +346,9 @@ test("Ctrl up/down reorder selected models, preserve selection, and stop at boun
     modelItems(component)[0]!.description ?? "",
     /unavailable in current model registry/,
   );
-  press(component, CTRL_UP);
+  press(component, MOVE_UP);
   assert.equal(component.getSelectList().getSelectedItem()?.value, "custom/missing");
-  press(component, CTRL_DOWN);
+  press(component, MOVE_DOWN);
   assert.deepEqual(component.getDraftModels(), [
     "openai/gpt-4.1",
     "custom/missing",
@@ -354,17 +356,17 @@ test("Ctrl up/down reorder selected models, preserve selection, and stop at boun
   ]);
   assert.equal(component.getSelectList().getSelectedItem()?.value, "custom/missing");
   assert.match(component.getSelectList().getSelectedItem()!.label, /\[x\] 2\./);
-  press(component, CTRL_UP);
+  press(component, MOVE_UP);
   assert.deepEqual(component.getDraftModels(), [
     "custom/missing",
     "openai/gpt-4.1",
     "anthropic/claude-3.7-sonnet",
   ]);
   moveSelectionToValue(component, "anthropic/claude-3.7-sonnet");
-  press(component, CTRL_DOWN);
+  press(component, MOVE_DOWN);
   assert.equal(component.getSelectList().getSelectedItem()?.value, "anthropic/claude-3.7-sonnet");
   moveSelectionToValue(component, "google/gemini-2.5-pro");
-  press(component, CTRL_UP, CTRL_DOWN);
+  press(component, MOVE_UP, MOVE_DOWN);
   assert.deepEqual(component.getDraftModels(), [
     "custom/missing",
     "openai/gpt-4.1",
@@ -381,6 +383,40 @@ test("Ctrl up/down reorder selected models, preserve selection, and stop at boun
   assert.deepEqual(done, [[]]);
 });
 
+test("search mode accepts w/s as text and Tab preserves the query when returning to reorder", () => {
+  for (const enterSearch of ["/", TAB]) {
+    const initialModels = ["custom/missing", "openai/gpt-4.1"];
+    const { component } = createComponent({ initialModels });
+    component.focused = true;
+    press(component, enterSearch, "w", "s");
+    assert.equal(component.getSearchInput().focused, true);
+    assert.equal(component.getSearchInput().getValue(), "ws");
+    assert.deepEqual(component.getDraftModels(), initialModels);
+    assert.match(component.render(100).join("\n"), /Tab browse/);
+    assert.doesNotMatch(component.render(100).join("\n"), /w\/s reorder/);
+
+    press(component, TAB);
+    assert.equal(component.getSearchInput().focused, false);
+    assert.equal(component.getSearchInput().getValue(), "ws");
+    moveSelectionToValue(component, "custom/missing");
+    press(component, MOVE_DOWN);
+    assert.deepEqual(component.getDraftModels(), ["openai/gpt-4.1", "custom/missing"]);
+    assert.equal(component.getSearchInput().getValue(), "ws");
+    assert.match(component.render(100).join("\n"), /w\/s reorder/);
+
+    press(component, TAB, "w", "s");
+    assert.equal(component.getSearchInput().getValue(), "wsws");
+    assert.deepEqual(component.getDraftModels(), ["openai/gpt-4.1", "custom/missing"]);
+  }
+
+  const { component } = createComponent({
+    initialModels: ["custom/missing", "openai/gpt-4.1"],
+  });
+  press(component, ..."aws");
+  assert.equal(component.getSearchInput().getValue(), "aws");
+  assert.deepEqual(component.getDraftModels(), ["custom/missing", "openai/gpt-4.1"]);
+});
+
 test("search keeps selected models above results and allows reorder while filtering", () => {
   const { component, done } = createComponent({
     initialModels: ["openai/gpt-4.1", "custom/missing"],
@@ -391,8 +427,9 @@ test("search keeps selected models above results and allows reorder while filter
     ["openai/gpt-4.1", "custom/missing", "google/gemini-2.5-pro"],
   );
   assert.equal(component.getSelectList().getSelectedItem()?.value, "google/gemini-2.5-pro");
+  press(component, TAB);
   moveSelectionToValue(component, "openai/gpt-4.1");
-  press(component, CTRL_DOWN);
+  press(component, MOVE_DOWN);
   assert.deepEqual(component.getDraftModels(), ["custom/missing", "openai/gpt-4.1"]);
   press(component, ENTER);
   assert.deepEqual(component.getDraftModels(), ["custom/missing"]);
@@ -408,7 +445,7 @@ test("Escape cancels without committing toggles or reordering", () => {
     initialModels: ["openai/gpt-4.1"],
   });
   activateValue(component, "google/gemini-2.5-pro");
-  press(component, CTRL_UP, ..."gemini", ESC);
+  press(component, MOVE_UP, ..."gemini", ESC);
   assert.equal(getCancelled(), 1);
   assert.deepEqual(done, []);
 });
@@ -431,11 +468,11 @@ test("model dialogs keep selected rows, borders and footer visible on short term
       assert.match(stripTerminalSequences(lines.at(-1)!), /^╰.*╯$/);
     }
   }
-  press(component, CTRL_UP);
+  press(component, MOVE_UP);
   assert.equal(component.getSelectList().getSelectedItem()?.value, "local/model-29");
   component.focused = true;
   const lines = component.render(80);
   assert.ok(lines.length <= 10);
-  assert.match(lines.join("\n"), /Ctrl\+↑↓ reorder.*Esc cancel/);
+  assert.match(lines.join("\n"), /w\/s reorder.*Esc cancel/);
   assert.match(stripTerminalSequences(lines.at(-1)!), /^╰.*╯$/);
 });

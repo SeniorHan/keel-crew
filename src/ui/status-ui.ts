@@ -139,7 +139,6 @@ export class StatusDialog {
   private syncRefresh(): void {
     if (!this.refreshing) return;
     const delay =
-      this.nerdFontIcons &&
       this.service
         .list()
         .some(

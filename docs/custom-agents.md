@@ -143,7 +143,7 @@ In `/agents types`, select **[labs] Icon** and paste the glyph, then save the ag
 | Ctrl+S   | Save (or apply a multiline field to the draft) |
 | Esc      | Discard draft                                  |
 
-The model picker lists selected models first, in fallback order. **Enter** toggles a model, **Ctrl+↑/↓** reorders, typing filters. Unselected models are ranked by fuzzy match against `modelSuggestions`, scoped models first.
+The model picker lists selected models first, in fallback order. **Enter** toggles a model; **w/s** moves a selected model up/down in browse mode. **/** or **Tab** enters search, where typing (including w/s) filters; **Tab** returns to browsing while keeping the filter. Other typed letters also start search. Unselected models are ranked by fuzzy match against `modelSuggestions`, scoped models first.
 
 **External editor** opens the whole Markdown definition in `$VISUAL`, `$EDITOR`,
 or `vi` in fork mode. For an overlay, edit its YAML file directly and reload.
