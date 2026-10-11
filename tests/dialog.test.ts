@@ -525,6 +525,10 @@ for (const Renderer of [TuiMainScreen, TuiAltScreen]) {
     await input(ESC);
     await selectRow("scope");
     await input("\r");
+    // Default Enter cancels the new scope confirmation without losing the draft.
+    assert.equal((tui.getFocusedComponent() as DialogSession).getComponent() instanceof DialogMenu, true);
+    assert.equal(((tui.getFocusedComponent() as DialogSession).getComponent() as DialogMenu).getSelectedId(), "cancel");
+    await input("\r");
     await selectRow("types");
     await input("\r");
     await input(ESC);

@@ -5,6 +5,7 @@ import {
   dialogInput,
   dialogMenu,
   withDialogSession,
+  type DialogRow,
 } from "./dialog.ts";
 import {
   DEFAULT_MANAGER_SETTINGS,
@@ -14,9 +15,9 @@ import {
   type CostValue,
   LOADER_STYLES,
   type LoaderStyle,
-  loadManagerSaveScope,
-  saveManagerSaveScope,
-  saveManagerSettings,
+  loadManagerSettingsLayers,
+  saveManagerOverrides,
+  setManagerProjectSettings,
   type ManagerSettings,
   type ModelSelectionMode,
   type SubagentMode,
@@ -149,11 +150,28 @@ const COST_VALUE_OPTIONS = [
 
 const COST_ICON_LABELS = { money: "Money", coins: "Coins", wallet: "Wallet" } as const;
 
+type SettingsLayers = ReturnType<typeof loadManagerSettingsLayers>;
+
+/** Persisted changes, not unsaved draft values; theme styling is computed on render. */
+function withProvenance(row: DialogRow, keys: (keyof ManagerSettings)[], layers: SettingsLayers): DialogRow {
+  const globalChanged = keys.some((key) => layers.global[key] !== undefined &&
+    layers.global[key] !== DEFAULT_MANAGER_SETTINGS[key]);
+  const projectChanged = keys.some((key) => layers.project[key] !== undefined &&
+    layers.project[key] !== (layers.global[key] ?? DEFAULT_MANAGER_SETTINGS[key]));
+  return {
+    ...row,
+    renderLabel: (label, theme) =>
+      (globalChanged ? theme.fg("accent", "●") + " " : "") +
+      (projectChanged ? theme.fg("warning", "●") + " " : "") + label.replace(/^\[labs\] /, ""),
+    help: `${row.label}\n${row.help ?? ""}\nDots (saved): accent ● Global; warning ● Current Project; both ● ● changed in both.`,
+  };
+}
+
 /** Edits the shared draft; only the outer settings screen saves or applies it. */
-async function configureFooterDisplay(ctx: ExtensionCommandContext, draft: ManagerSettings): Promise<void> {
+async function configureFooterDisplay(ctx: ExtensionCommandContext, draft: ManagerSettings, layers: SettingsLayers): Promise<void> {
   let selectedId: string | undefined;
   while (true) {
-    const action = await dialogMenu(ctx, "[labs] Footer display", [
+    const action = await dialogMenu(ctx, "[labs] Footer display", ([
       {
         id: "location",
         label: "Location",
@@ -173,7 +191,10 @@ async function configureFooterDisplay(ctx: ExtensionCommandContext, draft: Manag
         help: `Choose a money-related ${draft.nerdFontIcons ? "Nerd Font" : "emoji"} icon. The family follows [labs] Nerd Font icons.`,
       },
       { id: "back", label: "Back", help: "Return to settings. Save and apply there to commit these changes." },
-    ], { selectedId, footer: "↑↓/Tab navigate · Enter edit · Esc back" });
+    ] as DialogRow[]).map((row) => {
+      const key = ({ location: "costDisplay", value: "costValue", icon: "costIcon" } as Record<string, keyof ManagerSettings>)[row.id];
+      return key ? withProvenance(row, [key], layers) : row;
+    }), { selectedId, footer: "↑↓/Tab navigate · Enter edit · Esc back" });
     if (!action || action === "back") return;
     selectedId = action;
     if (action === "location") {
@@ -244,18 +265,26 @@ async function configureAgentsDialog(
     apply(): void;
   },
 ): Promise<void> {
-  let draft = { ...options.settings };
-  let scope = loadManagerSaveScope({
+  const readLayers = () => loadManagerSettingsLayers({
+    cwd: ctx.cwd,
     agentDir: options.agentDir,
     includeProject: ctx.isProjectTrusted(),
   });
+  let layers = readLayers();
+  const reportDiagnostics = () => {
+    for (const diagnostic of layers.diagnostics) ctx.ui.notify(diagnostic, "warning");
+  };
+  reportDiagnostics();
+  let baseline = { ...layers.settings };
+  let draft = { ...baseline };
+  let scope = layers.scope;
   let selectedId: string | undefined;
   while (true) {
-    const dirty = JSON.stringify(draft) !== JSON.stringify(options.settings);
+    const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
     const action = await dialogMenu(
       ctx,
       `Agents settings${dirty ? " · unsaved" : ""}`,
-      [
+      ([
         {
           id: "subagentMode",
           label: "Subagent Mode",
@@ -318,7 +347,7 @@ async function configureAgentsDialog(
           id: "scope",
           label: "Save scope",
           value: scope === "user" ? "Global" : "Current Project",
-          help: "Global: save all values shown as your defaults for every project. Existing project settings still override them, including here.\nCurrent Project: save all values shown for this project only, overriding your global defaults here. Other projects are unchanged. Requires a trusted project.\nSwitching scope only changes where you save, not the values shown. Your choice is remembered across projects and restarts, even if you cancel.",
+          help: "Global: save overrides of built-in defaults for all projects.\nCurrent Project: save overrides of global settings for this trusted project.\nSwitching requires confirmation: enabling Project creates its settings file; switching to Global deletes it and discards unsaved edits. Confirmed scope changes happen immediately, even if you later cancel.",
         },
         {
           id: "types",
@@ -336,14 +365,19 @@ async function configureAgentsDialog(
           label: "Save and apply",
           value: dirty ? "(changes)" : undefined,
           valueColor: dirty ? "warning" as const : undefined,
-          help: "Save all values to the selected scope and reload settings now.\nProject overrides still take precedence.\nRunning agents and retained sessions are kept.",
+          help: "Save only overrides to the selected scope and reload settings now.\nUnchanged values inherit from the lower layer.\nRunning agents and retained sessions are kept.",
         },
         {
           id: "cancel",
           label: "Cancel",
           help: "Close without saving manager settings.",
         },
-      ],
+      ] as DialogRow[]).map((row) => {
+        const keys = row.id === "costDisplay"
+          ? ["costDisplay", "costValue", "costIcon"] as (keyof ManagerSettings)[]
+          : row.id in DEFAULT_MANAGER_SETTINGS ? [row.id as keyof ManagerSettings] : [];
+        return keys.length ? withProvenance(row, keys, layers) : row;
+      }),
       {
         selectedId,
         saveId: "save",
@@ -396,7 +430,7 @@ async function configureAgentsDialog(
         if (WIDGET_MODE_OPTIONS.some((option) => option.id === mode))
           draft.widgetMode = mode as WidgetMode;
       } else if (action === "costDisplay") {
-        await configureFooterDisplay(ctx, draft);
+        await configureFooterDisplay(ctx, draft, layers);
       } else if (action === "nerdFontIcons") {
         draft.nerdFontIcons = !draft.nerdFontIcons;
       } else if (action === "loaderStyle") {
@@ -420,8 +454,33 @@ async function configureAgentsDialog(
           );
         else {
           const nextScope = scope === "user" ? "project" : "user";
-          saveManagerSaveScope(options.agentDir, nextScope);
+          const message = nextScope === "project"
+            ? "Create project file now; outer Cancel cannot undo.\nThis will create this project's settings.json. Further changes will be saved there. Unsaved edits are kept until Save and apply."
+            : "Delete project file now. Discard edits. No undo.\nUnsaved edits will be discarded. Outer Cancel cannot undo. We reload global settings; further changes are saved globally.";
+          const confirmation = await dialogMenu(ctx,
+            nextScope === "project" ? "Enable project settings?" : "Clear project settings and use Global?",
+            [
+              { id: "confirm", label: "Confirm", help: message },
+              { id: "cancel", label: "Cancel", help: message + "\nCancel leaves files, scope and unsaved edits unchanged." },
+            ],
+            { selectedId: "cancel", footer: "↑↓/Tab choose · Enter select · Esc cancel" },
+          );
+          if (confirmation !== "confirm") continue;
+          setManagerProjectSettings({
+            cwd: ctx.cwd,
+            agentDir: options.agentDir,
+            includeProject: ctx.isProjectTrusted(),
+            enabled: nextScope === "project",
+            expectedLayers: layers,
+          });
+          layers = readLayers();
+          reportDiagnostics();
           scope = nextScope;
+          if (scope === "user") {
+            baseline = { ...layers.settings };
+            draft = { ...baseline };
+            options.apply();
+          }
         }
       } else if (action === "defaults") draft = { ...DEFAULT_MANAGER_SETTINGS };
       else if (action === "types") {
@@ -431,16 +490,17 @@ async function configureAgentsDialog(
         });
         options.store.reload();
       } else if (action === "save") {
-        const file = saveManagerSettings({
+        const file = saveManagerOverrides({
           cwd: ctx.cwd,
           agentDir: options.agentDir,
           includeProject: ctx.isProjectTrusted(),
           scope,
           settings: draft,
+          expectedLayers: layers,
         });
         options.apply();
         ctx.ui.notify(
-          `Saved ${file}. Settings reloaded; project overrides take precedence.`,
+          `Saved ${file}. Settings reloaded; unchanged values inherit from the lower layer.`,
           "info",
         );
         return;

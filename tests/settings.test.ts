@@ -17,8 +17,9 @@ import { test, type TestContext } from "node:test";
 import {
   DEFAULT_MANAGER_SETTINGS as DEFAULTS,
   loadManagerSettings,
-  loadManagerSaveScope,
-  saveManagerSaveScope,
+  loadManagerSettingsLayers,
+  saveManagerOverrides,
+  setManagerProjectSettings,
   saveManagerSettings,
   SUBAGENT_MODES,
   MODEL_SELECTION_MODES,
@@ -86,38 +87,6 @@ function assertNoTempFiles(directory: string): void {
   if (!existsSync(directory)) return;
   for (const name of readdirSync(directory)) assert.ok(!name.endsWith(".tmp"), name);
 }
-
-test("save-scope preference persists separately from manager settings with trust fallback", (t) => {
-  const f = fixture(t);
-  const scope = (includeProject = true) => loadManagerSaveScope({ agentDir: f.agentDir, includeProject });
-  assert.equal(scope(), "project");
-  assert.equal(scope(false), "user");
-  saveManagerSaveScope(f.agentDir, "user");
-  assert.equal(scope(), "user");
-  assert.equal(existsSync(f.globalFile), false);
-  assert.deepEqual(load(f), { settings: DEFAULTS, diagnostics: [] });
-  saveManagerSaveScope(f.agentDir, "project");
-  assert.equal(scope(false), "user");
-  assert.equal(scope(), "project");
-  assertNoTempFiles(join(f.agentDir, "subagent-manager"));
-});
-
-test("invalid or unsafe save-scope state falls back; writes reject symlinks", (t) => {
-  const f = fixture(t);
-  const file = join(f.agentDir, "subagent-manager", "ui-state.json");
-  const scope = () => loadManagerSaveScope({ agentDir: f.agentDir, includeProject: true });
-  for (const value of ["{broken", null, [], { saveScope: "invalid" }]) {
-    writeJson(file, value);
-    assert.equal(scope(), "project");
-  }
-  rmSync(file);
-  const target = join(f.root, "target.json");
-  writeJson(target, { saveScope: "user" });
-  symlinkSync(target, file);
-  assert.equal(scope(), "project");
-  assert.throws(() => saveManagerSaveScope(f.agentDir, "user"), /symlink/);
-  assert.deepEqual(JSON.parse(readFileSync(target, "utf8")), { saveScope: "user" });
-});
 
 test("missing files return a fresh copy of defaults without diagnostics", (t) => {
   const f = fixture(t);
@@ -692,4 +661,347 @@ test("subagent extensions default off, persist in either scope and require a boo
   assert.equal(invalid.settings.subagentExtensions, true);
   assert.match(invalid.diagnostics.join("\n"), /subagentExtensions must be a boolean/);
   rejects(() => save(f, "user", { ...DEFAULTS, subagentExtensions: 1 }), /must be a boolean/);
+});
+
+test("layer snapshots preserve validated provenance, precedence and legacy normalization", (t) => {
+  const f = fixture(t);
+  const options = { ...f, includeProject: true };
+  assert.deepEqual(loadManagerSettingsLayers(options), {
+    settings: DEFAULTS, diagnostics: [], global: {}, project: {}, scope: "user",
+  });
+  writeJson(f.globalFile, { maxLevels: 5, scopedModelFiltering: false, finalRecap: true });
+  writeJson(f.projectFile, { maxLevels: 2, finalRecap: false });
+  const loaded = loadManagerSettingsLayers(options);
+  assert.deepEqual(loaded.global, {
+    maxLevels: 5, modelSelection: "pick-first-available", finalRecap: true,
+  });
+  assert.deepEqual(loaded.project, { maxLevels: 2, finalRecap: false });
+  assert.deepEqual(loaded.settings, {
+    ...DEFAULTS, maxLevels: 2, modelSelection: "pick-first-available",
+  });
+  assert.equal(loaded.scope, "project");
+  assert.deepEqual(loaded.diagnostics, []);
+  loaded.global.maxLevels = 20;
+  loaded.project.finalRecap = true;
+  assert.equal(loaded.settings.maxLevels, 2);
+  assert.equal(loaded.settings.finalRecap, false);
+  assert.equal(loadManagerSettingsLayers(options).global.maxLevels, 5);
+});
+
+test("layer scope follows this project's file rather than legacy cross-project UI preference", (t) => {
+  const f = fixture(t);
+  const options = { ...f, includeProject: true };
+  const uiStateFile = join(f.agentDir, "subagent-manager", "ui-state.json");
+  writeJson(uiStateFile, { saveScope: "project" });
+  assert.equal(loadManagerSettingsLayers(options).scope, "user");
+  writeJson(f.projectFile, {});
+  writeJson(uiStateFile, { saveScope: "user" });
+  assert.equal(loadManagerSettingsLayers(options).scope, "project");
+  const otherCwd = join(f.root, "other-project");
+  mkdirSync(otherCwd);
+  assert.equal(loadManagerSettingsLayers({ ...options, cwd: otherCwd }).scope, "user");
+  assert.deepEqual(loadManagerSettingsLayers({ ...options, includeProject: false }), {
+    settings: DEFAULTS, diagnostics: [], global: {}, project: {}, scope: "user",
+  });
+});
+
+test("invalid regular layers have no provenance but project files still select Project", (t) => {
+  const f = fixture(t);
+  writeJson(f.globalFile, { maxLevels: 5 });
+  for (const invalid of ["{broken", [], { maxLevels: 2, unknown: true }]) {
+    writeJson(f.projectFile, invalid);
+    const loaded = loadManagerSettingsLayers({ ...f, includeProject: true });
+    assert.equal(loaded.scope, "project");
+    assert.deepEqual(loaded.project, {});
+    assert.deepEqual(loaded.global, { maxLevels: 5 });
+    assert.equal(loaded.settings.maxLevels, 5);
+    assert.equal(loaded.diagnostics.length, 1);
+    assert.match(loaded.diagnostics[0], escape(f.projectFile));
+  }
+  writeJson(f.globalFile, { maxLevels: 2, finalRecap: "invalid" });
+  writeJson(f.projectFile, { maxConcurrent: 7 });
+  const loaded = loadManagerSettingsLayers({ ...f, includeProject: true });
+  assert.deepEqual(loaded.global, {});
+  assert.deepEqual(loaded.project, { maxConcurrent: 7 });
+  assert.deepEqual(loaded.settings, { ...DEFAULTS, maxConcurrent: 7 });
+});
+
+test("sparse saves inherit lower layers and do not snapshot unrelated values", (t) => {
+  const f = fixture(t);
+  const options = { ...f, includeProject: true };
+  assert.equal(saveManagerOverrides({ ...options, scope: "user", settings: {
+    ...DEFAULTS, maxLevels: 5, finalRecap: true,
+  } }), f.globalFile);
+  assert.deepEqual(JSON.parse(readFileSync(f.globalFile, "utf8")), {
+    maxLevels: 5, finalRecap: true,
+  });
+  const globalBefore = readFileSync(f.globalFile, "utf8");
+  saveManagerOverrides({ ...options, scope: "project", settings: {
+    ...load(f).settings, maxConcurrent: 7,
+  } });
+  assert.deepEqual(JSON.parse(readFileSync(f.projectFile, "utf8")), { maxConcurrent: 7 });
+  assert.equal(readFileSync(f.globalFile, "utf8"), globalBefore);
+  writeJson(f.globalFile, { maxLevels: 8, finalRecap: false, costValue: "total" });
+  assert.deepEqual(load(f).settings, {
+    ...DEFAULTS, maxLevels: 8, maxConcurrent: 7, costValue: "total",
+  });
+  saveManagerOverrides({ ...options, scope: "project", settings: load(f, false).settings });
+  assert.equal(readFileSync(f.projectFile, "utf8"), "{}\n");
+  assert.equal(loadManagerSettingsLayers(options).scope, "project", "empty layer preserves scope");
+  assert.equal(lstatSync(f.projectFile).mode & 0o777, 0o600);
+  assertNoTempFiles(dirname(f.projectFile));
+});
+
+test("saving built-in defaults in Project explicitly overrides changed global values", (t) => {
+  const f = fixture(t);
+  writeJson(f.globalFile, { maxLevels: 5, finalRecap: true, costIcon: "wallet" });
+  saveManagerOverrides({ ...f, includeProject: true, scope: "project", settings: DEFAULTS });
+  assert.deepEqual(JSON.parse(readFileSync(f.projectFile, "utf8")), {
+    maxLevels: DEFAULTS.maxLevels, costIcon: DEFAULTS.costIcon, finalRecap: false,
+  });
+  assert.deepEqual(load(f).settings, DEFAULTS);
+  saveManagerOverrides({ ...f, includeProject: true, scope: "user", settings: DEFAULTS });
+  assert.equal(readFileSync(f.globalFile, "utf8"), "{}\n");
+});
+
+test("sparse saves validate complete drafts and trust before any filesystem changes", (t) => {
+  const f = fixture(t);
+  const options = { ...f, includeProject: true };
+  for (const scope of ["user", "project"] as const) {
+    for (const value of [null, [], {}, { ...DEFAULTS, maxLevels: 33 }, { ...DEFAULTS, extra: true }]) {
+      assert.throws(() => saveManagerOverrides({ ...options, scope, settings: value as ManagerSettings }));
+      assert.equal(existsSync(dirname(f.globalFile)), false);
+      assert.equal(existsSync(join(f.cwd, ".pi")), false);
+    }
+  }
+  rejects(() => saveManagerOverrides({ ...options, includeProject: false, scope: "project", settings: DEFAULTS }), /not enabled\/trusted/);
+  rejects(() => saveManagerOverrides({ ...options, scope: "global" as "user", settings: DEFAULTS }), /Invalid settings scope/);
+  saveManagerOverrides({ ...options, scope: "user", settings: { ...DEFAULTS, maxLevels: 4 } });
+  const before = readFileSync(f.globalFile, "utf8");
+  rejects(() => saveManagerOverrides({ ...options, scope: "user", settings: { ...DEFAULTS, finalRecap: "bad" } as unknown as ManagerSettings }), /boolean/);
+  assert.equal(readFileSync(f.globalFile, "utf8"), before);
+});
+
+test("project activation creates only an empty private layer and preserves existing contents", (t) => {
+  const f = fixture(t);
+  const options = { ...f, includeProject: true };
+  writeJson(f.globalFile, { maxLevels: 8 });
+  const globalBefore = readFileSync(f.globalFile, "utf8");
+  assert.equal(setManagerProjectSettings({ ...options, enabled: true }), f.projectFile);
+  assert.equal(readFileSync(f.projectFile, "utf8"), "{}\n");
+  assert.equal(lstatSync(f.projectFile).mode & 0o777, 0o600);
+  assert.equal(load(f).settings.maxLevels, 8);
+  assert.deepEqual(readdirSync(dirname(f.projectFile)), ["settings.json"]);
+  for (const content of ['{"maxLevels":2}', "malformed settings JSON"]) {
+    writeFileSync(f.projectFile, content);
+    const ino = lstatSync(f.projectFile).ino;
+    setManagerProjectSettings({ ...options, enabled: true });
+    assert.equal(readFileSync(f.projectFile, "utf8"), content);
+    assert.equal(lstatSync(f.projectFile).ino, ino);
+  }
+  assert.equal(readFileSync(f.globalFile, "utf8"), globalBefore);
+});
+
+test("project deactivation removes even malformed JSON but leaves directories and unrelated files", (t) => {
+  const f = fixture(t);
+  const options = { ...f, includeProject: true };
+  setManagerProjectSettings({ ...options, enabled: false });
+  assert.equal(existsSync(join(f.cwd, ".pi")), false, "absence does not create folders");
+  writeJson(f.globalFile, { maxLevels: 5 });
+  writeJson(f.projectFile, "malformed JSON");
+  const otherFile = join(dirname(f.projectFile), "keep.json");
+  writeFileSync(otherFile, "keep");
+  const directoryIno = lstatSync(dirname(f.projectFile)).ino;
+  const globalBefore = readFileSync(f.globalFile, "utf8");
+  assert.equal(setManagerProjectSettings({ ...options, enabled: false }), f.projectFile);
+  assert.equal(existsSync(f.projectFile), false);
+  assert.equal(lstatSync(dirname(f.projectFile)).ino, directoryIno);
+  assert.equal(readFileSync(otherFile, "utf8"), "keep");
+  assert.equal(readFileSync(f.globalFile, "utf8"), globalBefore);
+  assert.equal(load(f).settings.maxLevels, 5);
+  assert.equal(loadManagerSettingsLayers(options).scope, "user");
+  setManagerProjectSettings({ ...options, enabled: false });
+});
+
+test("scope transitions require trust and a boolean without touching disk", (t) => {
+  const f = fixture(t);
+  for (const enabled of [false, true]) {
+    rejects(() => setManagerProjectSettings({ ...f, includeProject: false, enabled }), /not enabled\/trusted/);
+  }
+  rejects(() => setManagerProjectSettings({ ...f, includeProject: true, enabled: "yes" as unknown as boolean }), /Invalid project settings state/);
+  assert.equal(existsSync(join(f.cwd, ".pi")), false);
+  assert.equal(existsSync(dirname(f.globalFile)), false);
+});
+
+test("new layer and persistence APIs reject project symlinks at every owned path", (t) => {
+  for (const segments of [[], [".pi"], [".pi", "agent"], [".pi", "agent", "subagent-manager"], [".pi", "agent", "subagent-manager", "settings.json"]]) {
+    const f = fixture(t);
+    const link = join(f.cwd, ...segments);
+    const target = join(f.root, "outside");
+    const targetFile = link === f.projectFile ? target : join(target, relative(link, f.projectFile));
+    writeJson(targetFile, { maxLevels: 9 });
+    rmSync(link, { recursive: true, force: true });
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync(target, link);
+    const options = { ...f, includeProject: true };
+    const loaded = loadManagerSettingsLayers(options);
+    assert.equal(loaded.scope, "user");
+    assert.deepEqual(loaded.project, {});
+    assert.match(loaded.diagnostics[0], /Unsafe symlink path/);
+    for (const enabled of [true, false]) {
+      rejects(() => setManagerProjectSettings({ ...options, enabled }), /Unsafe symlink path/, link);
+    }
+    rejects(() => saveManagerOverrides({ ...options, scope: "project", settings: DEFAULTS }), /Unsafe symlink path/, link);
+    assert.equal(readFileSync(targetFile, "utf8"), '{"maxLevels":9}');
+    assert.ok(lstatSync(link).isSymbolicLink());
+  }
+});
+
+test("new persistence APIs reject nonregular files and invalid owned directories", (t) => {
+  for (const fileInsteadOfDirectory of [false, true]) {
+    const f = fixture(t);
+    const unsafe = fileInsteadOfDirectory ? join(f.cwd, ".pi") : f.projectFile;
+    if (fileInsteadOfDirectory) writeFileSync(unsafe, "not a directory");
+    else mkdirSync(unsafe, { recursive: true });
+    const options = { ...f, includeProject: true };
+    const pattern = fileInsteadOfDirectory ? /Settings directory must be a directory/ : /Settings must be a regular file/;
+    assert.match(loadManagerSettingsLayers(options).diagnostics[0], pattern);
+    for (const enabled of [true, false]) rejects(() => setManagerProjectSettings({ ...options, enabled }), pattern, unsafe);
+    rejects(() => saveManagerOverrides({ ...options, scope: "project", settings: DEFAULTS }), pattern, unsafe);
+    assert.ok(existsSync(unsafe));
+  }
+});
+
+test("sparse Project saves normalize legacy values but reject malformed global baselines", (t) => {
+  const f = fixture(t);
+  const options = { ...f, includeProject: true, scope: "project" as const };
+  writeJson(f.globalFile, { scopedModelFiltering: false, costValue: "total" });
+  saveManagerOverrides({ ...options, settings: {
+    ...DEFAULTS, modelSelection: "pick-first-available", costValue: "total", maxThreads: 90,
+  } });
+  assert.deepEqual(JSON.parse(readFileSync(f.projectFile, "utf8")), { maxThreads: 90 });
+  writeJson(f.globalFile, { maxLevels: 5, finalRecap: "invalid" });
+  const before = readFileSync(f.projectFile, "utf8");
+  rejects(() => saveManagerOverrides({ ...options, settings: { ...DEFAULTS, maxConcurrent: 7 } }), /global settings are invalid/);
+  assert.equal(readFileSync(f.projectFile, "utf8"), before);
+  assert.equal(load(f).settings.maxLevels, DEFAULTS.maxLevels);
+  assert.equal(load(f).settings.maxThreads, 90);
+});
+
+test("sparse Global saves reject unsafe global paths without reading untrusted Project", (t) => {
+  const f = fixture(t);
+  const target = join(f.root, "outside.json");
+  writeJson(target, { maxLevels: 9 });
+  mkdirSync(dirname(f.globalFile), { recursive: true });
+  symlinkSync(target, f.globalFile);
+  mkdirSync(dirname(f.projectFile), { recursive: true });
+  symlinkSync(target, f.projectFile);
+  const options = { ...f, includeProject: false };
+  const loaded = loadManagerSettingsLayers(options);
+  assert.equal(loaded.diagnostics.length, 1);
+  assert.match(loaded.diagnostics[0], escape(f.globalFile));
+  assert.deepEqual(loaded.global, {});
+  assert.deepEqual(loaded.project, {});
+  assert.equal(loaded.scope, "user");
+  rejects(() => saveManagerOverrides({ ...options, scope: "user", settings: DEFAULTS }), /Unsafe symlink path/, f.globalFile);
+  assert.equal(readFileSync(target, "utf8"), '{"maxLevels":9}');
+  rmSync(f.globalFile);
+  saveManagerOverrides({ ...options, scope: "user", settings: { ...DEFAULTS, maxLevels: 4 } });
+  assert.deepEqual(JSON.parse(readFileSync(f.globalFile, "utf8")), { maxLevels: 4 });
+  assert.equal(readFileSync(target, "utf8"), '{"maxLevels":9}');
+});
+
+test("expected layers prevent stale inherited drafts from snapshotting changed globals", (t) => {
+  for (const scope of ["user", "project"] as const) {
+    const f = fixture(t);
+    const options = { ...f, includeProject: true };
+    writeJson(f.globalFile, { maxLevels: 5 });
+    if (scope === "project") writeJson(f.projectFile, { maxThreads: 90 });
+    const expectedLayers = loadManagerSettingsLayers(options);
+    const draft = { ...expectedLayers.settings, maxConcurrent: 7 };
+    writeJson(f.globalFile, { maxLevels: 8 });
+    const before = readFileSync(f.globalFile, "utf8");
+    const projectBefore = scope === "project" ? readFileSync(f.projectFile, "utf8") : undefined;
+    rejects(() => saveManagerOverrides({ ...options, scope, settings: draft, expectedLayers }), /changed on disk.*Reopen settings/);
+    assert.equal(readFileSync(f.globalFile, "utf8"), before);
+    if (projectBefore !== undefined) assert.equal(readFileSync(f.projectFile, "utf8"), projectBefore);
+    else assert.equal(existsSync(join(f.cwd, ".pi")), false);
+  }
+});
+
+test("snapshot comparison ignores property order while preserving known layer changes", (t) => {
+  const f = fixture(t);
+  const options = { ...f, includeProject: true };
+  writeJson(f.globalFile, { maxLevels: 5, finalRecap: true });
+  writeJson(f.projectFile, { maxThreads: 90, costValue: "total" });
+  const expectedLayers = loadManagerSettingsLayers(options);
+  writeFileSync(f.globalFile, ' { "finalRecap": true, "maxLevels": 5 }\n');
+  writeJson(f.projectFile, { costValue: "total", maxThreads: 90 });
+  saveManagerOverrides({ ...options, scope: "project", settings: {
+    ...expectedLayers.settings, maxConcurrent: 7,
+  }, expectedLayers });
+  assert.deepEqual(JSON.parse(readFileSync(f.projectFile, "utf8")), {
+    maxConcurrent: 7, maxThreads: 90, costValue: "total",
+  });
+});
+
+test("snapshot guards notice project edits, scope changes and diagnostic changes", (t) => {
+  const f = fixture(t);
+  const options = { ...f, includeProject: true };
+  for (const mutation of ["project-key", "project-created", "diagnostic", "trust"] as const) {
+    rmSync(join(f.cwd, ".pi"), { recursive: true, force: true });
+    writeJson(f.globalFile, { maxLevels: 5 });
+    if (mutation === "project-key" || mutation === "trust") writeJson(f.projectFile, { maxThreads: 90 });
+    const expectedLayers = loadManagerSettingsLayers(options);
+    if (mutation === "project-key") writeJson(f.projectFile, { maxThreads: 100 });
+    else if (mutation === "project-created") writeJson(f.projectFile, {});
+    else if (mutation === "diagnostic") writeJson(f.globalFile, "{malformed");
+    const currentOptions = { ...options, includeProject: mutation !== "trust" };
+    rejects(() => saveManagerOverrides({ ...currentOptions, scope: "user", settings: expectedLayers.settings, expectedLayers }), /Reopen settings/);
+  }
+});
+
+test("malformed global refuses Project saves without creating files, while Global can repair", (t) => {
+  const f = fixture(t);
+  const options = { ...f, includeProject: true };
+  writeJson(f.globalFile, "{malformed");
+  const expectedLayers = loadManagerSettingsLayers(options);
+  const settings = { ...DEFAULTS, maxConcurrent: 7 };
+  const before = readFileSync(f.globalFile, "utf8");
+  rejects(() => saveManagerOverrides({ ...options, scope: "project", settings, expectedLayers }), /global settings are invalid/);
+  assert.equal(existsSync(join(f.cwd, ".pi")), false);
+  assert.equal(readFileSync(f.globalFile, "utf8"), before);
+  saveManagerOverrides({ ...options, scope: "user", settings, expectedLayers });
+  assert.deepEqual(JSON.parse(readFileSync(f.globalFile, "utf8")), { maxConcurrent: 7 });
+  assert.deepEqual(load(f).diagnostics, []);
+});
+
+test("snapshot guards prevent changed global values during both scope confirmations", (t) => {
+  for (const enabled of [true, false]) {
+    const f = fixture(t);
+    const options = { ...f, includeProject: true };
+    writeJson(f.globalFile, { maxLevels: 5 });
+    if (!enabled) writeJson(f.projectFile, { maxThreads: 90 });
+    const expectedLayers = loadManagerSettingsLayers(options);
+    writeJson(f.globalFile, { maxLevels: 8 });
+    rejects(() => setManagerProjectSettings({ ...options, enabled, expectedLayers }), /changed on disk.*Reopen settings/);
+    if (enabled) assert.equal(existsSync(join(f.cwd, ".pi")), false);
+    else assert.deepEqual(JSON.parse(readFileSync(f.projectFile, "utf8")), { maxThreads: 90 });
+  }
+});
+
+test("scope guard permits equivalent property order and deletion with invalid global", (t) => {
+  const f = fixture(t);
+  const options = { ...f, includeProject: true };
+  writeJson(f.globalFile, { maxLevels: 5, finalRecap: true });
+  let expectedLayers = loadManagerSettingsLayers(options);
+  writeJson(f.globalFile, { finalRecap: true, maxLevels: 5 });
+  setManagerProjectSettings({ ...options, enabled: true, expectedLayers });
+  assert.equal(readFileSync(f.projectFile, "utf8"), "{}\n");
+  writeJson(f.globalFile, "{malformed");
+  expectedLayers = loadManagerSettingsLayers(options);
+  setManagerProjectSettings({ ...options, enabled: false, expectedLayers });
+  assert.equal(existsSync(f.projectFile), false);
+  assert.equal(readFileSync(f.globalFile, "utf8"), "{malformed");
+  assert.equal(load(f).diagnostics.length, 1);
 });

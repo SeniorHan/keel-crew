@@ -62,7 +62,7 @@ Minimal mode groups starting agents with running agents and excludes the main co
 
 ## [labs] Nerd Font icons (`nerdFontIcons`)
 
-Experimental features are tagged **[labs]** in settings. **[labs] Nerd Font icons** is an on/off toggle, **off by default**. Enable it in `/agents` and save with **Ctrl+S**, or set `"nerdFontIcons": true` in your settings file. Configure a [Nerd Font](https://www.nerdfonts.com/) in your terminal first; unsupported fonts may show boxes or incorrect glyphs. The extension does not install or detect fonts.
+Experimental features are tagged **[labs]** in the selected setting's help. Row labels omit that prefix to leave room for provenance dots. **[labs] Nerd Font icons** is an on/off toggle, **off by default**. Enable it in `/agents` and save with **Ctrl+S**, or set `"nerdFontIcons": true` in your settings file. Configure a [Nerd Font](https://www.nerdfonts.com/) in your terminal first; unsupported fonts may show boxes or incorrect glyphs. The extension does not install or detect fonts.
 
 When enabled, an agent type’s optional `icon` appears before its readable name in the full widget, thread browsers, live watcher header, and type picker. Starting/running agents show the selected loader **before the original role icon**, never replacing it. Completed, paused, failed, and stopped agents show that loader family's corresponding static state icon before the role icon. Agents without a configured role icon still show their loader/state indicator. The one-line minimal widget uses the same family's indicators for aggregate status counts. Turning the setting off hides role icons without removing configured icons; portable loaders remain visible; RPC output keeps state indicators static. Saved settings apply immediately to newly rendered widgets and dialogs.
 
@@ -184,9 +184,38 @@ Lower it to keep the tree tidy. Raise it for long sessions with many agents. Whe
 
 ## Scope
 
-The dialog's scope field picks where to save: **global** or **trusted project**.
-Your selection is remembered across dialog reopenings, projects, and Pi restarts,
-even if you cancel. It is stored separately from manager settings in
-`<agentDir>/subagent-manager/ui-state.json`. Untrusted projects always use Global
-without overwriting your remembered choice. Existing project settings still
-override global defaults; switching scope does not change the values shown.
+Settings are read in order: **built-in defaults → Global → trusted Current Project**.
+All keys are optional. The dialog saves only values different from the lower layer,
+so unchanged settings continue inheriting future global changes. Restoring defaults
+is a draft edit; in Project scope it can explicitly override non-default global values.
+
+Colored dots before each setting describe saved changes: an **accent dot** means
+changed in Global relative to defaults; a **warning dot** means changed in Current
+Project relative to effective global settings. Both dots appear when both layers
+change that setting, even when the project restores the built-in default. Equal
+values are not changes. Unsaved edits do not change the dots. Footer display groups
+the provenance of its three settings; its submenu shows each separately.
+
+The save scope is **Global** when no project settings file exists and **Current
+Project** when one exists. It is determined independently for each project; the old
+cross-project `ui-state.json` preference is no longer used by this dialog.
+Untrusted projects always read and save Global only.
+
+Changing scope opens a confirmation screen with **Cancel selected by default**:
+
+- **Global → Current Project:** Confirm creates the project settings file as an
+  empty object (inheriting global). Unsaved edits are kept; Save and apply writes
+  them to Project. Future edits in this project use Project scope.
+- **Current Project → Global:** Confirm deletes only this manager's project
+  settings file, discards unsaved edits, reloads global/default values immediately,
+  and routes future saves to Global. Project values are not copied into Global.
+- **Cancel / Esc:** no files, values, or scope are changed.
+
+Confirmed scope changes happen **immediately** and survive cancelling the outer
+settings screen. Ordinary value edits still require **Save and apply**. Running
+agents and retained threads are kept.
+
+The dialog warns about invalid settings layers. Project saves are blocked until an
+invalid Global layer is fixed, rather than persisting a default-based snapshot.
+If settings layers change while the dialog is open, Save and scope transitions
+refuse the stale draft: reopen settings to load the new values before editing.

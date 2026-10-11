@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { ConfigStore } from "../src/prefs/config.ts";
@@ -24,64 +24,93 @@ type Menu = { title: string; rows: DialogRow[]; selectedId: string | undefined }
 async function run(
   t: TestContext,
   actions: (string | undefined)[],
-  { settings = DEFAULT_MANAGER_SETTINGS, trusted = false, width = 80, root: existingRoot, agentDir: existingAgentDir } = {} as {
+  { settings, trusted = false, width = 80, rows = 24, root: existingRoot, agentDir: existingAgentDir, global, project, onMenu } = {} as {
     settings?: ManagerSettings;
     trusted?: boolean;
     width?: number;
+    rows?: number;
     root?: string;
     agentDir?: string;
+    global?: Partial<ManagerSettings> | string;
+    project?: Partial<ManagerSettings> | string;
+    onMenu?: (menu: Menu, index: number, files: { userFile: string; projectFile: string }) => void;
   },
 ) {
   const root = existingRoot ?? mkdtempSync(join(tmpdir(), "pi-settings-ui-"));
   if (!existingRoot) t.after(() => rmSync(root, { recursive: true, force: true }));
   const agentDir = existingAgentDir ?? root;
+  const userFile = join(agentDir, "subagent-manager", "settings.json");
+  const projectFile = join(root, ".pi", "agent", "subagent-manager", "settings.json");
+  for (const [file, contents] of [[userFile, global ?? settings], [projectFile, project]] as const) {
+    if (contents === undefined) continue;
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, typeof contents === "string" ? contents : JSON.stringify(contents));
+  }
+  const initialSettings = settings ?? loadManagerSettings({ cwd: root, agentDir, includeProject: trusted }).settings;
   const notifications: string[] = [];
+  const notificationTypes: string[] = [];
   const menus: Menu[] = [];
   const driver = createDialogDriver({
     theme,
     width,
+    rows,
     choices: actions,
     unified: true,
     assertBorder: true,
     onOpen: (options) => assert.equal((options as { overlay?: boolean }).overlay, true),
-    onMenu: (menu) =>
-      menus.push({
+    onMenu: (menu) => {
+      const snapshot = {
         title: menu.title,
         selectedId: menu.getSelectedId(),
         rows: menu.rows.map((row) => ({ ...row })),
-      }),
+      };
+      menus.push(snapshot);
+      onMenu?.(snapshot, menus.length - 1, { userFile, projectFile });
+    },
   });
   const ctx = {
     cwd: root,
     hasUI: true,
     mode: "tui",
     isProjectTrusted: () => trusted,
-    ui: { notify: (message: string) => notifications.push(message), custom: driver.custom },
+    ui: {
+      notify: (message: string, type: string) => {
+        notifications.push(message);
+        notificationTypes.push(type);
+      },
+      custom: driver.custom,
+    },
   } as unknown as ExtensionCommandContext;
   let applied = 0;
+  const appliedSettings: ManagerSettings[] = [];
   await configureAgents(ctx, {
     store: new ConfigStore({ cwd: root, agentDir, includeProject: false }),
     agentDir,
-    settings: { ...settings },
-    apply: () => applied++,
+    settings: { ...initialSettings },
+    apply: () => {
+      applied++;
+      appliedSettings.push(loadManagerSettings({ cwd: root, agentDir, includeProject: trusted }).settings);
+    },
   });
   // Every settings flow stays inside one outer overlay with a fixed frame height.
   assert.equal(driver.stats.outerOpens, 1);
   assert.equal(driver.stats.outerCompletions, 1);
   assert.equal(driver.stats.forcedRenders, 0);
-  const height = dialogHeight({ requestRender() {}, terminal: { rows: 24 } });
+  const height = dialogHeight({ requestRender() {}, terminal: { rows } });
   assert.ok(driver.stats.frameHeights.every((frame) => frame === height));
   const value = (menu: number, id: string) => menus[menu]?.rows.find((row) => row.id === id)?.value;
   return {
     root,
     applied,
+    appliedSettings,
     notifications,
+    notificationTypes,
     menus,
     renders: driver.renders,
     value,
-    loaded: loadManagerSettings({ cwd: root, agentDir, includeProject: true }),
-    userFile: join(agentDir, "subagent-manager", "settings.json"),
-    projectFile: join(root, ".pi", "agent", "subagent-manager", "settings.json"),
+    loaded: loadManagerSettings({ cwd: root, agentDir, includeProject: trusted }),
+    userFile,
+    projectFile,
   };
 }
 
@@ -182,7 +211,8 @@ test("selecting each subagent mode saves it", async (t) => {
     assert.equal(result.applied, 1);
     assert.equal(result.loaded.settings.subagentMode, mode);
     assert.equal(result.loaded.diagnostics.length, 0);
-    assert.equal(JSON.parse(readFileSync(result.userFile, "utf8")).subagentMode, mode);
+    assert.equal(JSON.parse(readFileSync(result.userFile, "utf8")).subagentMode,
+      mode === DEFAULT_MANAGER_SETTINGS.subagentMode ? undefined : mode);
   }
 });
 
@@ -238,7 +268,8 @@ test("Model Picking saves all three modes", async (t) => {
     assert.equal(result.loaded.settings.modelSelection, mode);
     assert.equal(result.loaded.diagnostics.length, 0);
     const stored = JSON.parse(readFileSync(result.userFile, "utf8"));
-    assert.equal(stored.modelSelection, mode);
+    assert.equal(stored.modelSelection,
+      mode === DEFAULT_MANAGER_SETTINGS.modelSelection ? undefined : mode);
     assert.equal(Object.hasOwn(stored, "scopedModelFiltering"), false);
   }
 });
@@ -260,7 +291,7 @@ test("Model Picking and other edits stay draft-only until save; chooser cancella
 });
 
 test("Model Picking saves to a trusted project", async (t) => {
-  const saved = await run(t, ["modelSelection", "use-current", "save"], { trusted: true });
+  const saved = await run(t, ["scope", "confirm", "modelSelection", "use-current", "save"], { trusted: true });
   assert.equal(saved.applied, 1);
   assert.equal(saved.loaded.settings.modelSelection, "use-current");
   assert.equal(JSON.parse(readFileSync(saved.projectFile, "utf8")).modelSelection, "use-current");
@@ -296,17 +327,53 @@ for (const width of [32, 80]) {
   });
 }
 
-test("changing save scope preserves the draft without saving on cancel", async (t) => {
-  const result = await run(t, ["maxLevels", "5", "scope", "scope", "cancel"], { trusted: true });
-  for (const index of [1, 2, 3]) {
-    assert.equal(result.value(index, "maxLevels"), "5");
+test("Global to Project confirmation Cancel and Esc preserve files, scope and unsaved draft", async (t) => {
+  for (const choice of ["cancel", undefined]) {
+    const result = await run(t, ["maxLevels", "5", "scope", choice, "cancel"], { trusted: true });
+    assert.equal(result.value(0, "scope"), "Global");
+    assert.equal(result.value(1, "maxLevels"), "5");
+    assert.equal(result.menus[2]!.title, "Enable project settings?");
+    assert.equal(result.menus[2]!.selectedId, "cancel");
+    assert.match(result.menus[2]!.rows[0]!.help!, /create this project's settings\.json/);
+    assert.equal(result.value(3, "maxLevels"), "5");
+    assert.equal(result.value(3, "scope"), "Global");
+    assert.match(result.menus[3]!.title, /unsaved/);
+    assert.equal(result.applied, 0);
+    assert.equal(existsSync(result.userFile), false);
+    assert.equal(existsSync(result.projectFile), false);
   }
-  assert.equal(result.value(1, "scope"), "Current Project");
-  assert.equal(result.value(2, "scope"), "Global");
+});
+
+test("confirming Project creates an empty layer immediately and preserves edits until save", async (t) => {
+  const result = await run(t, ["maxLevels", "5", "scope", "confirm", "cancel"], {
+    trusted: true, global: { maxThreads: 20 },
+  });
   assert.equal(result.value(3, "scope"), "Current Project");
+  assert.equal(result.value(3, "maxLevels"), "5");
+  assert.match(result.menus[3]!.title, /unsaved/);
+  assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), {});
+  assert.deepEqual(JSON.parse(readFileSync(result.userFile, "utf8")), { maxThreads: 20 });
   assert.equal(result.applied, 0);
-  assert.equal(existsSync(result.userFile), false);
-  assert.equal(existsSync(result.projectFile), false);
+  assert.equal(result.loaded.settings.maxLevels, DEFAULT_MANAGER_SETTINGS.maxLevels);
+  assert.equal(result.loaded.settings.maxThreads, 20);
+  const reopened = await run(t, ["maxLevels", "5", "save"], { trusted: true, root: result.root });
+  assert.equal(reopened.value(0, "scope"), "Current Project");
+  assert.deepEqual(JSON.parse(readFileSync(reopened.projectFile, "utf8")), { maxLevels: 5 });
+  assert.deepEqual(JSON.parse(readFileSync(reopened.userFile, "utf8")), { maxThreads: 20 });
+  assert.equal(reopened.applied, 1);
+});
+
+test("edits made before confirming Project are saved there rather than copied into Global", async (t) => {
+  const result = await run(t, ["maxLevels", "8", "scope", "confirm", "save"], {
+    trusted: true, global: { maxLevels: 5, maxThreads: 20 },
+  });
+  assert.equal(result.value(3, "maxLevels"), "8");
+  assert.equal(result.value(3, "scope"), "Current Project");
+  assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), { maxLevels: 8 });
+  assert.deepEqual(JSON.parse(readFileSync(result.userFile, "utf8")), { maxLevels: 5, maxThreads: 20 });
+  assert.equal(result.applied, 1);
+  assert.equal(result.appliedSettings[0]!.maxLevels, 8);
+  assert.equal(result.appliedSettings[0]!.maxThreads, 20);
 });
 
 test("restore defaults resets the whole draft before save", async (t) => {
@@ -324,64 +391,290 @@ test("restore defaults resets the whole draft before save", async (t) => {
   assert.equal(result.value(1, "subagentMode"), "Opportunistic");
   assert.equal(result.value(1, "toolFiltering"), "Allowed (except blocked)");
   assert.deepEqual(result.loaded.settings, DEFAULT_MANAGER_SETTINGS);
-  assert.match(readFileSync(result.userFile, "utf8"), /"modelSelection": "pick-first-scoped"/);
+  assert.deepEqual(JSON.parse(readFileSync(result.userFile, "utf8")), {});
 });
 
-test("project scope requires trust; trusted projects save to the project file", async (t) => {
-  const untrusted = await run(t, ["scope", "maxThreads", "2", undefined]);
-  assert.equal(untrusted.applied, 0);
-  assert.ok(untrusted.notifications.some((message) => message.includes("trusted project")));
-  assert.deepEqual(untrusted.loaded.settings, DEFAULT_MANAGER_SETTINGS);
+test("trusted projects without a project file start Global; confirmed Project saves sparse overrides", async (t) => {
+  const global = await run(t, ["maxLevels", "7", "save"], { trusted: true });
+  assert.equal(global.value(0, "scope"), "Global");
+  assert.deepEqual(JSON.parse(readFileSync(global.userFile, "utf8")), { maxLevels: 7 });
+  assert.equal(existsSync(global.projectFile), false);
 
-  const trusted = await run(t, ["subagentMode", "off", "maxThreads", "9", "save"], { trusted: true });
-  assert.equal(trusted.applied, 1);
-  assert.equal(trusted.loaded.settings.maxThreads, 9);
-  assert.equal(trusted.loaded.settings.subagentMode, "off");
-  assert.equal(existsSync(trusted.projectFile), true);
-  assert.equal(existsSync(trusted.userFile), false);
-
-  const toggled = await run(t, ["scope", "save"], { trusted: true });
-  assert.equal(toggled.value(0, "scope"), "Current Project");
-  assert.equal(toggled.value(1, "scope"), "Global");
-  assert.equal(existsSync(toggled.userFile), true);
-  assert.equal(existsSync(toggled.projectFile), false);
+  const project = await run(t, ["scope", "confirm", "subagentMode", "off", "maxThreads", "9", "save"], {
+    trusted: true, root: global.root,
+  });
+  assert.equal(project.applied, 1);
+  assert.equal(project.loaded.settings.maxLevels, 7);
+  assert.deepEqual(JSON.parse(readFileSync(project.projectFile, "utf8")), { maxThreads: 9, subagentMode: "off" });
+  assert.deepEqual(JSON.parse(readFileSync(project.userFile, "utf8")), { maxLevels: 7 });
 });
 
-test("Global save scope sticks across reopenings and projects without changing precedence", async (t) => {
-  const initial = await run(t, ["save"], {
-    trusted: true,
-    settings: { ...DEFAULT_MANAGER_SETTINGS, maxLevels: 7 },
-  });
-  const global = await run(t, ["scope", "maxLevels", "5", "save"], {
-    trusted: true,
-    root: initial.root,
-  });
-  assert.equal(global.value(1, "scope"), "Global");
-  assert.equal(JSON.parse(readFileSync(global.userFile, "utf8")).maxLevels, 5);
-  assert.equal(global.loaded.settings.maxLevels, 7); // Project override still wins.
-  assert.deepEqual(global.loaded.diagnostics, []);
+test("Project to Global Cancel and Esc leave overrides and draft unchanged", async (t) => {
+  for (const choice of ["cancel", undefined]) {
+    const result = await run(t, ["maxLevels", "9", "scope", choice, "cancel"], {
+      trusted: true, global: { maxLevels: 5 }, project: { maxLevels: 7 },
+    });
+    assert.equal(result.value(0, "scope"), "Current Project");
+    assert.equal(result.menus[2]!.selectedId, "cancel");
+    assert.match(result.menus[2]!.title, /Clear project settings/);
+    assert.match(result.menus[2]!.rows[0]!.help!, /Unsaved edits will be discarded/);
+    assert.equal(result.value(3, "scope"), "Current Project");
+    assert.equal(result.value(3, "maxLevels"), "9");
+    assert.match(result.menus[3]!.title, /unsaved/);
+    assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), { maxLevels: 7 });
+    assert.deepEqual(JSON.parse(readFileSync(result.userFile, "utf8")), { maxLevels: 5 });
+    assert.equal(result.loaded.settings.maxLevels, 7);
+    assert.equal(result.applied, 0);
+  }
+});
 
-  const reopened = await run(t, ["cancel"], { trusted: true, root: initial.root });
+test("Project to Global Confirm clears project immediately, discards draft, reloads and routes future saves", async (t) => {
+  const result = await run(t, ["maxLevels", "9", "scope", "confirm", "cancel"], {
+    trusted: true, global: { maxLevels: 5 }, project: { maxLevels: 7, widgetMode: "minimal" },
+  });
+  assert.equal(result.value(3, "scope"), "Global");
+  assert.equal(result.value(3, "maxLevels"), "5");
+  assert.equal(result.value(3, "widgetMode"), "Full");
+  assert.doesNotMatch(result.menus[3]!.title, /unsaved/);
+  assert.equal(existsSync(result.projectFile), false);
+  assert.equal(existsSync(dirname(result.projectFile)), true, "only the settings file is deleted");
+  assert.deepEqual(JSON.parse(readFileSync(result.userFile, "utf8")), { maxLevels: 5 });
+  assert.equal(result.applied, 1, "reload happens even without Save and apply");
+  assert.equal(result.appliedSettings[0]!.maxLevels, 5);
+  assert.equal(result.appliedSettings[0]!.widgetMode, "full");
+  const reopened = await run(t, ["maxLevels", "6", "save"], { trusted: true, root: result.root });
   assert.equal(reopened.value(0, "scope"), "Global");
-  const otherProject = await run(t, ["save"], { trusted: true, agentDir: initial.root });
+  assert.equal(existsSync(reopened.projectFile), false);
+  assert.deepEqual(JSON.parse(readFileSync(reopened.userFile, "utf8")), { maxLevels: 6 });
+});
+
+test("save scope is project-local and ignores the legacy remembered preference", async (t) => {
+  const project = await run(t, ["scope", "confirm", "cancel"], { trusted: true, global: { maxLevels: 5 } });
+  writeFileSync(join(dirname(project.userFile), "ui-state.json"), JSON.stringify({ saveScope: "user" }));
+  const reopened = await run(t, ["cancel"], { trusted: true, root: project.root });
+  assert.equal(reopened.value(0, "scope"), "Current Project");
+  const otherProject = await run(t, ["cancel"], { trusted: true, agentDir: project.root });
   assert.equal(otherProject.value(0, "scope"), "Global");
+  assert.equal(otherProject.value(0, "maxLevels"), "5");
   assert.equal(existsSync(otherProject.projectFile), false);
 });
 
-test("scope selection persists even on cancel; untrusted fallback does not overwrite it", async (t) => {
-  const global = await run(t, ["scope", "cancel"], { trusted: true });
-  assert.equal(existsSync(global.userFile), false);
-  assert.equal(existsSync(global.projectFile), false);
-  const project = await run(t, ["scope", "cancel"], { trusted: true, root: global.root });
-  assert.equal(project.value(0, "scope"), "Global");
-  assert.equal(project.value(1, "scope"), "Current Project");
-  const untrusted = await run(t, ["scope", "save"], { root: global.root });
-  assert.equal(untrusted.value(0, "scope"), "Global");
-  assert.ok(untrusted.notifications.some((message) => message.includes("trusted project")));
-  assert.equal(existsSync(untrusted.projectFile), false);
-  const trustedAgain = await run(t, ["cancel"], { trusted: true, root: global.root });
-  assert.equal(trustedAgain.value(0, "scope"), "Current Project");
+test("untrusted projects ignore project values and cannot switch scope or alter the project file", async (t) => {
+  const result = await run(t, ["scope", "maxLevels", "6", "save"], {
+    global: { maxLevels: 5 }, project: { maxLevels: 7 },
+  });
+  assert.equal(result.value(0, "scope"), "Global");
+  assert.equal(result.value(0, "maxLevels"), "5");
+  assert.ok(result.notifications.some((message) => message.includes("trusted project")));
+  assert.equal(result.menus.some((menu) => menu.title.includes("project settings?")), false);
+  assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), { maxLevels: 7 });
+  assert.deepEqual(JSON.parse(readFileSync(result.userFile, "utf8")), { maxLevels: 6 });
+  assert.equal(result.loaded.settings.maxLevels, 6);
+  const row = result.menus[0]!.rows.find((row) => row.id === "maxLevels")!;
+  assert.equal(row.renderLabel!(row.label, theme), "● Maximum levels");
 });
+
+test("Save rejects concurrent Global or Project changes instead of persisting stale draft overrides", async (t) => {
+  for (const scope of ["global", "project"] as const) {
+    for (const changedLayer of scope === "global" ? ["global"] as const : ["global", "project"] as const) {
+      const result = await run(t, ["maxThreads", "9", "save", "cancel"], {
+        trusted: true,
+        global: { maxLevels: 5 },
+        ...(scope === "project" ? { project: { maxLevels: 7 } } : {}),
+        onMenu: (_menu, index, files) => {
+          if (index !== 1) return;
+          writeFileSync(changedLayer === "global" ? files.userFile : files.projectFile,
+            JSON.stringify({ maxLevels: 8 }));
+        },
+      });
+      assert.equal(result.applied, 0, `${scope} save rejected after ${changedLayer} changed`);
+      assert.ok(result.notifications.some((message) => /Settings changed on disk.*Reopen settings/.test(message)));
+      assert.equal(result.notificationTypes.at(-1), "error");
+      assert.equal(result.value(2, "maxThreads"), "9", "failed save preserves unsaved draft");
+      assert.match(result.menus[2]!.title, /unsaved/);
+      assert.deepEqual(JSON.parse(readFileSync(result.userFile, "utf8")),
+        { maxLevels: changedLayer === "global" ? 8 : 5 });
+      if (scope === "project") {
+        assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")),
+          { maxLevels: changedLayer === "project" ? 8 : 7 });
+      } else assert.equal(existsSync(result.projectFile), false);
+    }
+  }
+});
+
+test("confirming Project rejects concurrent changes without creating or overwriting its file", async (t) => {
+  for (const changedLayer of ["global", "project"] as const) {
+    const result = await run(t, ["scope", "confirm", "cancel"], {
+      trusted: true, global: { maxLevels: 5 },
+      onMenu: (menu, _index, files) => {
+        if (menu.title !== "Enable project settings?") return;
+        const file = changedLayer === "global" ? files.userFile : files.projectFile;
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, JSON.stringify({ maxLevels: 8 }));
+      },
+    });
+    assert.equal(result.applied, 0);
+    assert.equal(result.value(2, "scope"), "Global");
+    assert.ok(result.notifications.some((message) => /Settings changed on disk.*Reopen settings/.test(message)));
+    assert.deepEqual(JSON.parse(readFileSync(result.userFile, "utf8")),
+      { maxLevels: changedLayer === "global" ? 8 : 5 });
+    if (changedLayer === "project")
+      assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), { maxLevels: 8 });
+    else assert.equal(existsSync(result.projectFile), false);
+  }
+});
+
+test("confirming Global rejects concurrent changes without deleting the project file or dropping edits", async (t) => {
+  for (const changedLayer of ["global", "project"] as const) {
+    const result = await run(t, ["maxLevels", "9", "scope", "confirm", "cancel"], {
+      trusted: true, global: { maxLevels: 5 }, project: { maxLevels: 7 },
+      onMenu: (menu, _index, files) => {
+        if (!menu.title.startsWith("Clear project settings")) return;
+        writeFileSync(changedLayer === "global" ? files.userFile : files.projectFile,
+          JSON.stringify({ maxLevels: 8 }));
+      },
+    });
+    assert.equal(result.applied, 0);
+    assert.equal(result.value(3, "scope"), "Current Project");
+    assert.equal(result.value(3, "maxLevels"), "9");
+    assert.match(result.menus[3]!.title, /unsaved/);
+    assert.ok(result.notifications.some((message) => /Settings changed on disk.*Reopen settings/.test(message)));
+    assert.deepEqual(JSON.parse(readFileSync(result.userFile, "utf8")),
+      { maxLevels: changedLayer === "global" ? 8 : 5 });
+    assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")),
+      { maxLevels: changedLayer === "project" ? 8 : 7 });
+  }
+});
+
+test("invalid files warn on opening and reloading and contribute no values or dots", async (t) => {
+  const result = await run(t, ["scope", "confirm", "cancel"], {
+    trusted: true,
+    global: JSON.stringify({ maxLevels: 5, unknownSetting: true }),
+    project: "{",
+  });
+  const globalWarnings = result.notifications.filter((message) => message.startsWith(result.userFile + ":"));
+  const projectWarnings = result.notifications.filter((message) => message.startsWith(result.projectFile + ":"));
+  assert.equal(globalWarnings.length, 2, "initial and post-switch reload both report invalid global settings");
+  assert.match(globalWarnings[0]!, /Unknown settings key: unknownSetting/);
+  assert.equal(projectWarnings.length, 1);
+  assert.match(projectWarnings[0]!, /Invalid JSON/);
+  assert.ok(result.notificationTypes.every((type) => type === "warning"));
+  assert.equal(result.value(0, "maxLevels"), String(DEFAULT_MANAGER_SETTINGS.maxLevels));
+  assert.equal(coloredLabel(result.menus[0]!, "maxLevels"), "Maximum levels");
+  assert.equal(result.value(0, "scope"), "Current Project", "invalid project file can still be explicitly cleared");
+  assert.equal(result.value(2, "scope"), "Global");
+  assert.equal(existsSync(result.projectFile), false);
+  assert.deepEqual(result.appliedSettings[0], DEFAULT_MANAGER_SETTINGS);
+});
+
+test("destructive scope warning renders delete, discard and no-undo consequences at 60x12", async (t) => {
+  const result = await run(t, ["scope", "cancel", "cancel"], {
+    trusted: true, width: 60, rows: 12, global: { maxLevels: 5 }, project: { maxLevels: 7 },
+  });
+  const confirmation = result.renders[1]!;
+  const text = stripTerminalSequences(confirmation.join("\n"));
+  assert.match(text, /Delete project file now\./);
+  assert.match(text, /Discard edits\./);
+  assert.match(text, /No undo\./);
+  assert.equal(result.menus[1]!.selectedId, "cancel");
+  assert.equal(result.applied, 0);
+  assert.ok(result.renders.every((lines) => lines.every((line) => visibleWidth(line) <= 60)));
+  assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), { maxLevels: 7 });
+});
+
+test("settings values are read from layers rather than stale runtime settings", async (t) => {
+  const result = await run(t, ["cancel"], {
+    trusted: true,
+    settings: { ...DEFAULT_MANAGER_SETTINGS, maxLevels: 9, widgetMode: "minimal" },
+    global: { maxLevels: 5 },
+    project: { maxThreads: 20 },
+  });
+  assert.equal(result.value(0, "maxLevels"), "5");
+  assert.equal(result.value(0, "maxThreads"), "20");
+  assert.equal(result.value(0, "widgetMode"), "Full");
+  assert.doesNotMatch(result.menus[0]!.title, /unsaved/);
+  assert.equal(result.applied, 0);
+});
+
+const provenanceTheme = {
+  fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+} as Theme;
+const coloredLabel = (menu: Menu, id: string) => {
+  const row = menu.rows.find((row) => row.id === id)!;
+  return row.renderLabel?.(row.label, provenanceTheme) ?? row.label;
+};
+
+test("saved provenance distinguishes both layers, equal values, and projects reverting a default", async (t) => {
+  for (const width of [20, 40, 80]) {
+    const result = await run(t, ["maxLevels", "8", "cancel"], {
+      trusted: true, width,
+      global: { maxLevels: 5, widgetMode: "minimal", maxConcurrent: DEFAULT_MANAGER_SETTINGS.maxConcurrent },
+      project: { maxLevels: DEFAULT_MANAGER_SETTINGS.maxLevels, widgetMode: "minimal", maxConcurrent: 8 },
+    });
+    assert.equal(result.value(0, "maxLevels"), String(DEFAULT_MANAGER_SETTINGS.maxLevels));
+    assert.equal(coloredLabel(result.menus[0]!, "maxLevels"),
+      "<accent>●</accent> <warning>●</warning> Maximum levels");
+    assert.equal(coloredLabel(result.menus[0]!, "widgetMode"), "<accent>●</accent> Status Widget",
+      "project value equal to global does not count as changed");
+    assert.equal(coloredLabel(result.menus[0]!, "maxConcurrent"), "<warning>●</warning> Concurrent agents",
+      "explicit global value equal to default does not count as changed");
+    assert.equal(coloredLabel(result.menus[0]!, "modelSelection"), "Model Picking");
+    assert.equal(coloredLabel(result.menus[1]!, "maxLevels"), coloredLabel(result.menus[0]!, "maxLevels"),
+      "unsaved edits do not change saved provenance");
+    assert.match(result.menus[0]!.rows.find((row) => row.id === "maxLevels")!.help!, /Dots.*Global.*Current Project/);
+    assert.ok(result.renders.every((lines) => lines.every((line) => visibleWidth(line) <= width)));
+    assert.equal(result.menus[1]!.selectedId, "maxLevels", "the captured final frame focuses the changed setting");
+    assert.ok(stripTerminalSequences(result.renders.at(-1)!.join("\n")).includes("● ●"),
+      "both saved-layer dots render when Maximum levels is selected, including narrow viewports");
+  }
+});
+
+test("Footer aggregate provenance covers all three settings while the submenu marks each independently", async (t) => {
+  const result = await run(t, ["costDisplay", "icon", "money", "back", "cancel"], {
+    trusted: true,
+    global: { costDisplay: "pi-status", costValue: "total" },
+    project: { costDisplay: "pi-status", costIcon: "wallet" },
+  });
+  assert.equal(coloredLabel(result.menus[0]!, "costDisplay"),
+    "<accent>●</accent> <warning>●</warning> Footer display");
+  assert.equal(coloredLabel(result.menus[1]!, "location"), "<accent>●</accent> Location");
+  assert.equal(coloredLabel(result.menus[1]!, "value"), "<accent>●</accent> Display value");
+  assert.equal(coloredLabel(result.menus[1]!, "icon"), "<warning>●</warning> Icon");
+  assert.equal(coloredLabel(result.menus[1]!, "back"), "Back");
+  assert.equal(coloredLabel(result.menus[3]!, "icon"), "<warning>●</warning> Icon",
+    "changing the draft icon keeps the persisted dot");
+  assert.equal(result.applied, 0);
+  assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), { costDisplay: "pi-status", costIcon: "wallet" });
+});
+
+test("sparse Project saves inherit future global changes and defaults can override global", async (t) => {
+  const saved = await run(t, ["maxThreads", "9", "save"], {
+    trusted: true, global: { maxLevels: 5, widgetMode: "minimal" }, project: {},
+  });
+  assert.deepEqual(JSON.parse(readFileSync(saved.projectFile, "utf8")), { maxThreads: 9 });
+  writeFileSync(saved.userFile, JSON.stringify({ maxLevels: 6, widgetMode: "full" }));
+  const reopened = await run(t, ["cancel"], { trusted: true, root: saved.root });
+  assert.equal(reopened.value(0, "maxLevels"), "6");
+  assert.equal(reopened.value(0, "widgetMode"), "Full");
+  assert.equal(reopened.value(0, "maxThreads"), "9");
+  const restored = await run(t, ["defaults", "save"], { trusted: true, root: saved.root });
+  assert.deepEqual(restored.loaded.settings, DEFAULT_MANAGER_SETTINGS);
+  assert.deepEqual(JSON.parse(readFileSync(restored.projectFile, "utf8")), { maxLevels: DEFAULT_MANAGER_SETTINGS.maxLevels });
+  assert.deepEqual(JSON.parse(readFileSync(restored.userFile, "utf8")), { maxLevels: 6, widgetMode: "full" });
+});
+
+for (const width of [20, 40, 80]) {
+  test(`scope confirmation and two-layer settings fit bordered frames at width ${width}`, async (t) => {
+    const result = await run(t, ["scope", "confirm", "scope", "cancel", "cancel"], {
+      trusted: true, width, global: { maxLevels: 5 },
+    });
+    assert.equal(result.menus[1]!.selectedId, "cancel");
+    assert.equal(result.menus[3]!.selectedId, "cancel");
+    assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), {});
+    assert.equal(result.applied, 0);
+    assert.ok(result.renders.every((lines) => lines.every((line) => visibleWidth(line) <= width)));
+  });
+}
 
 test("Tool Filtering saves every mode", async (t) => {
   for (const [mode, label] of [
@@ -408,7 +701,8 @@ test("Tool Filtering saves every mode", async (t) => {
     assert.equal(result.applied, 1);
     assert.equal(result.loaded.settings.toolFiltering, mode);
     assert.equal(result.loaded.diagnostics.length, 0);
-    assert.equal(JSON.parse(readFileSync(result.userFile, "utf8")).toolFiltering, mode);
+    assert.equal(JSON.parse(readFileSync(result.userFile, "utf8")).toolFiltering,
+      mode === DEFAULT_MANAGER_SETTINGS.toolFiltering ? undefined : mode);
   }
 });
 
@@ -427,7 +721,7 @@ test("Tool Filtering selection and chooser cancellation remain draft-only", asyn
 });
 
 test("Tool Filtering saves to a trusted project and restores defaults without saving on cancel", async (t) => {
-  const saved = await run(t, ["toolFiltering", "all-except-blocked", "save"], { trusted: true });
+  const saved = await run(t, ["scope", "confirm", "toolFiltering", "all-except-blocked", "save"], { trusted: true });
   assert.equal(saved.applied, 1);
   assert.equal(saved.loaded.settings.toolFiltering, "all-except-blocked");
   assert.equal(
@@ -472,7 +766,8 @@ test("Status Widget saves each mode", async (t) => {
     assert.equal(result.applied, 1);
     assert.equal(result.loaded.settings.widgetMode, mode);
     assert.equal(result.loaded.diagnostics.length, 0);
-    assert.equal(JSON.parse(readFileSync(result.userFile, "utf8")).widgetMode, mode);
+    assert.equal(JSON.parse(readFileSync(result.userFile, "utf8")).widgetMode,
+      mode === DEFAULT_MANAGER_SETTINGS.widgetMode ? undefined : mode);
   }
 });
 
@@ -497,7 +792,7 @@ test("Status Widget cancellation leaves settings unchanged and defaults restore 
 });
 
 test("Status Widget saves to a trusted project", async (t) => {
-  const result = await run(t, ["widgetMode", "minimal", "save"], { trusted: true });
+  const result = await run(t, ["scope", "confirm", "widgetMode", "minimal", "save"], { trusted: true });
   assert.equal(result.applied, 1);
   assert.equal(JSON.parse(readFileSync(result.projectFile, "utf8")).widgetMode, "minimal");
   assert.equal(existsSync(result.userFile), false);
@@ -527,13 +822,13 @@ test("[labs] Final Recap toggles and saves to both scopes", async (t) => {
   assert.equal(JSON.parse(readFileSync(enabled.userFile, "utf8")).finalRecap, true);
 
   const disabled = await run(t, ["finalRecap", "save"], {
-    settings: { ...DEFAULT_MANAGER_SETTINGS, finalRecap: true }, trusted: true,
+    global: { finalRecap: true }, project: {}, trusted: true,
   });
   assert.equal(disabled.value(1, "finalRecap"), "Off");
   assert.equal(disabled.loaded.settings.finalRecap, false);
   assert.equal(disabled.applied, 1);
   assert.equal(JSON.parse(readFileSync(disabled.projectFile, "utf8")).finalRecap, false);
-  assert.equal(existsSync(disabled.userFile), false);
+  assert.deepEqual(JSON.parse(readFileSync(disabled.userFile, "utf8")), { finalRecap: true });
 });
 
 test("[labs] Final Recap cancellation, toggle reversal and restore-defaults keep it opt-in", async (t) => {
@@ -617,7 +912,7 @@ test("Footer edits remain draft-only, picker Esc preserves values, and defaults 
 
 test("Footer submenu and pickers fit narrow terminals and save to project scope", async (t) => {
   for (const width of [20, 40, 60]) {
-    const result = await run(t, ["costDisplay", "location", "pi-footer-event", "value", "total", "icon", "coins", "back", "save"], { width, trusted: true });
+    const result = await run(t, ["scope", "confirm", "costDisplay", "location", "pi-footer-event", "value", "total", "icon", "coins", "back", "save"], { width, trusted: true });
     assert.ok(result.renders.every((lines) => lines.every((line) => visibleWidth(line) <= width)));
     assert.equal(result.loaded.settings.costValue, "total");
     assert.equal(result.loaded.settings.costIcon, "coins");

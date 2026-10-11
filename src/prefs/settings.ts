@@ -3,6 +3,7 @@ import {
   closeSync,
   constants,
   fchmodSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -222,82 +223,74 @@ function layer(base: string, segments: string[]): SettingsLayer {
   return { filePath: join(current, "settings.json"), directories };
 }
 
-function readLayerContent(entry: SettingsLayer): string | undefined {
+function settingsFileExists(entry: SettingsLayer): boolean {
   for (const directory of entry.directories) {
     const stat = assertNotSymlinkPath(directory);
-    if (!stat) return undefined;
+    if (!stat) return false;
     if (!stat.isDirectory())
       throw new Error(`Settings directory must be a directory: ${directory}`);
   }
   const stat = assertNotSymlinkPath(entry.filePath);
-  if (!stat) return undefined;
+  if (!stat) return false;
   if (!stat.isFile())
     throw new Error(`Settings must be a regular file: ${entry.filePath}`);
-  return readFileSync(entry.filePath, "utf8");
-}
-
-function readLayer(entry: SettingsLayer): Partial<ManagerSettings> | undefined {
-  const content = readLayerContent(entry);
-  return content === undefined ? undefined : parseSettings(content);
+  return true;
 }
 
 export type ManagerSaveScope = "user" | "project";
-
-function uiStateLayer(agentDir: string): SettingsLayer {
-  const entry = layer(agentDir, ["subagent-manager"]);
-  return { ...entry, filePath: join(dirname(entry.filePath), "ui-state.json") };
-}
-
-/** UI preference only: never participates in manager-settings precedence. */
-export function loadManagerSaveScope(options: {
-  agentDir: string;
-  includeProject: boolean;
-}): ManagerSaveScope {
-  if (!options.includeProject) return "user";
-  try {
-    const content = readLayerContent(uiStateLayer(options.agentDir));
-    if (content !== undefined) {
-      const state: unknown = JSON.parse(content);
-      if (
-        state && typeof state === "object" && !Array.isArray(state) &&
-        "saveScope" in state && state.saveScope === "user"
-      ) return "user";
-    }
-  } catch {
-    // Missing, invalid or unsafe UI state must not prevent opening settings.
-  }
-  return "project";
-}
-
-export function saveManagerSaveScope(agentDir: string, scope: ManagerSaveScope): void {
-  if (scope !== "user" && scope !== "project") throw new Error("Invalid settings scope");
-  const entry = uiStateLayer(agentDir);
-  ensureScopeDirectories(entry.directories);
-  writeAtomically(entry, `${JSON.stringify({ saveScope: scope }, null, 2)}\n`);
-}
 
 function detail(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function loadManagerSettings(options: {
+export interface ManagerSettingsOptions {
   cwd: string;
   agentDir: string;
   includeProject: boolean;
-}): { settings: ManagerSettings; diagnostics: string[] } {
-  const diagnostics: string[] = [];
-  const settings: ManagerSettings = { ...DEFAULT_MANAGER_SETTINGS };
-  const layers = [layer(options.agentDir, ["subagent-manager"])];
+}
+
+export interface ManagerSettingsLayers {
+  settings: ManagerSettings;
+  diagnostics: string[];
+  global: Partial<ManagerSettings>;
+  project: Partial<ManagerSettings>;
+  scope: ManagerSaveScope;
+}
+
+/** Validated layers retain provenance; save scope belongs to the current project. */
+export function loadManagerSettingsLayers(options: ManagerSettingsOptions): ManagerSettingsLayers {
+  const result: ManagerSettingsLayers = {
+    settings: { ...DEFAULT_MANAGER_SETTINGS },
+    diagnostics: [],
+    global: {},
+    project: {},
+    scope: "user",
+  };
+  const layers: ["global" | "project", SettingsLayer][] = [
+    ["global", layer(options.agentDir, ["subagent-manager"])],
+  ];
   if (options.includeProject)
-    layers.push(layer(options.cwd, [".pi", "agent", "subagent-manager"]));
-  for (const entry of layers) {
+    layers.push(["project", layer(options.cwd, [".pi", "agent", "subagent-manager"])]);
+  for (const [scope, entry] of layers) {
     try {
-      const parsed = readLayer(entry);
-      if (parsed !== undefined) Object.assign(settings, parsed);
+      if (!settingsFileExists(entry)) continue;
+      // Malformed/unreadable regular project files still represent a save destination.
+      if (scope === "project") result.scope = "project";
+      const parsed = parseSettings(readFileSync(entry.filePath, "utf8"));
+      result[scope] = parsed;
+      Object.assign(result.settings, parsed);
     } catch (error) {
-      diagnostics.push(`${entry.filePath}: ${detail(error)}`);
+      result.diagnostics.push(`${entry.filePath}: ${detail(error)}`);
     }
   }
+  return result;
+}
+
+export function loadManagerSettings(options: ManagerSettingsOptions): {
+  settings: ManagerSettings;
+  diagnostics: string[];
+} {
+  const { settings, diagnostics } = loadManagerSettingsLayers(options);
   return { settings, diagnostics };
 }
 
@@ -360,7 +353,7 @@ function exclusiveCreateFlags(): number {
   return constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW || 0);
 }
 
-function writeAtomically(entry: SettingsLayer, content: string): void {
+function writeAtomically(entry: SettingsLayer, content: string, overwrite = true): void {
   const filePath = entry.filePath;
   const temporary = join(dirname(filePath), `.settings.${randomUUID()}.tmp`);
   let created = false;
@@ -380,7 +373,17 @@ function writeAtomically(entry: SettingsLayer, content: string): void {
     const tempStat = assertNotSymlinkPath(temporary);
     if (!tempStat?.isFile())
       throw new Error(`Settings must be a regular file: ${temporary}`);
-    renameSync(temporary, filePath);
+    if (overwrite) renameSync(temporary, filePath);
+    else {
+      try {
+        // Linking a completed temporary file creates the destination without clobbering
+        // a settings file that appeared after the initial absence check.
+        linkSync(temporary, filePath);
+      } catch (error) {
+        if (errorCode(error) !== "EEXIST") throw error;
+        assertRegularFileOrAbsent(filePath);
+      }
+    }
   } finally {
     if (created) {
       try {
@@ -412,5 +415,74 @@ export function saveManagerSettings(options: {
       : layer(options.cwd, [".pi", "agent", "subagent-manager"]);
   ensureScopeDirectories(entry.directories);
   writeAtomically(entry, content);
+  return entry.filePath;
+}
+
+function assertExpectedLayers(current: ManagerSettingsLayers, expected: ManagerSettingsLayers): void {
+  if (
+    current.scope !== expected.scope ||
+    KEYS.some((key) => current.global[key] !== expected.global[key] ||
+      current.project[key] !== expected.project[key]) ||
+    current.diagnostics.length !== expected.diagnostics.length ||
+    current.diagnostics.some((diagnostic, index) => diagnostic !== expected.diagnostics[index])
+  ) {
+    throw new Error("Settings changed on disk. Reopen settings before saving or switching scope to avoid stale inherited values.");
+  }
+}
+
+/** Persist only values that change the selected scope's inherited settings. */
+export function saveManagerOverrides(options: ManagerSettingsOptions & {
+  scope: ManagerSaveScope;
+  settings: ManagerSettings;
+  expectedLayers?: ManagerSettingsLayers;
+}): string {
+  if (options.scope !== "user" && options.scope !== "project")
+    throw new Error("Invalid settings scope");
+  if (options.scope === "project" && !options.includeProject)
+    throw new Error("Project settings are not enabled/trusted");
+  // Validate the complete draft before creating directories or modifying files.
+  const parsed = parseSettings(serializedSettings(options.settings));
+  const current = loadManagerSettingsLayers(options);
+  if (options.expectedLayers) assertExpectedLayers(current, options.expectedLayers);
+  if (options.scope === "project") {
+    const globalPath = layer(options.agentDir, ["subagent-manager"]).filePath;
+    const globalDiagnostics = current.diagnostics.filter((diagnostic) => diagnostic.startsWith(`${globalPath}:`));
+    if (globalDiagnostics.length > 0)
+      throw new Error(`Cannot save project overrides while global settings are invalid. Fix global settings and reopen settings. ${globalDiagnostics.join("; ")}`);
+  }
+  const inherited = options.scope === "user"
+    ? DEFAULT_MANAGER_SETTINGS
+    : { ...DEFAULT_MANAGER_SETTINGS, ...current.global };
+  const overrides = Object.fromEntries(
+    KEYS.filter((key) => parsed[key] !== inherited[key]).map((key) => [key, parsed[key]]),
+  );
+  const entry = options.scope === "user"
+    ? layer(options.agentDir, ["subagent-manager"])
+    : layer(options.cwd, [".pi", "agent", "subagent-manager"]);
+  ensureScopeDirectories(entry.directories);
+  writeAtomically(entry, `${JSON.stringify(overrides, null, 2)}\n`);
+  return entry.filePath;
+}
+
+/** Confirmed scope transition: create an empty project layer or remove only its file. */
+export function setManagerProjectSettings(options: ManagerSettingsOptions & {
+  enabled: boolean;
+  expectedLayers?: ManagerSettingsLayers;
+}): string {
+  if (!options.includeProject) throw new Error("Project settings are not enabled/trusted");
+  if (typeof options.enabled !== "boolean") throw new Error("Invalid project settings state");
+  if (options.expectedLayers)
+    assertExpectedLayers(loadManagerSettingsLayers(options), options.expectedLayers);
+  const entry = layer(options.cwd, [".pi", "agent", "subagent-manager"]);
+  const present = settingsFileExists(entry);
+  if (options.enabled) {
+    if (!present) {
+      ensureScopeDirectories(entry.directories);
+      writeAtomically(entry, "{}\n", false);
+    }
+  } else if (present) {
+    // Recheck owned paths immediately before deletion; malformed JSON is removable.
+    if (settingsFileExists(entry)) unlinkSync(entry.filePath);
+  }
   return entry.filePath;
 }
