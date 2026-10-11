@@ -773,6 +773,69 @@ test("tail following pauses on scroll and per-agent state restores across remoun
   restored.view.dispose();
 });
 
+const wheel = (wheelDelta: number | undefined, type: "wheel" | "click" = "wheel") => ({
+  type,
+  button: "none" as const,
+  x: 1,
+  y: 1,
+  screenX: 1,
+  screenY: 1,
+  width: 60,
+  height: 8,
+  shift: false,
+  alt: false,
+  ctrl: false,
+  ...(wheelDelta === undefined ? {} : { wheelDelta }),
+});
+
+test("mouse wheel scrolls the transcript like Up/Down, including while composing", async () => {
+  const messages = Array.from({ length: 40 }, (_, index) => message(`line ${index}`));
+  const state = { scrollTop: 0, follow: true };
+  const live = launch(snapshot({ messages }), 8, state);
+  await tick();
+  live.view.render(60);
+  const bottom = state.scrollTop;
+  assert.equal(live.view.handleMouse(wheel(-3))?.handled, true);
+  assert.equal(state.follow, false);
+  assert.equal(
+    state.scrollTop,
+    bottom - 3,
+    "wheel up moves by wheelDelta lines and stops following",
+  );
+  live.view.handleInput("\x1b[A");
+  assert.equal(state.scrollTop, bottom - 4, "wheel and arrow scrolling share one position");
+  live.view.handleMouse(wheel(2));
+  assert.equal(state.scrollTop, bottom - 2);
+  live.view.handleMouse(wheel(1000));
+  assert.equal(state.scrollTop, bottom, "wheel is clamped at the end");
+  assert.equal(state.follow, true, "scrolling back to the end resumes following");
+  live.view.handleMouse(wheel(-100000));
+  assert.equal(state.scrollTop, 0, "wheel is clamped at the start");
+  assert.equal(live.view.handleInput("x"), undefined);
+  live.view.render(60);
+  assert.equal(live.view.handleMouse(wheel(-3))?.handled, true, "draft focus does not block wheel");
+  assert.match(live.view.render(60).join("\n"), /Steer > x/);
+  live.view.dispose();
+});
+
+test("mouse handling ignores non-wheel, empty, malformed and post-dispose events", async () => {
+  const messages = Array.from({ length: 40 }, (_, index) => message(`line ${index}`));
+  const state = { scrollTop: 0, follow: true };
+  const live = launch(snapshot({ messages }), 8, state);
+  await tick();
+  live.view.render(60);
+  const before = { ...state };
+  assert.equal(live.view.handleMouse(wheel(-3, "click")), undefined);
+  assert.equal(live.view.handleMouse(wheel(undefined)), undefined);
+  assert.equal(live.view.handleMouse(wheel(0)), undefined);
+  assert.equal(live.view.handleMouse(wheel(Number.NaN)), undefined);
+  assert.equal(live.view.handleMouse(wheel(Number.POSITIVE_INFINITY)), undefined);
+  assert.deepEqual(state, before);
+  live.view.dispose();
+  assert.equal(live.view.handleMouse(wheel(-3)), undefined);
+  assert.deepEqual(state, before);
+});
+
 test("viewer fits and covers tiny/large terminals and sanitizes all untrusted text", async () => {
   for (const rows of [1, 2, 3, 10, 30]) {
     const live = launch(

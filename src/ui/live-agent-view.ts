@@ -8,6 +8,8 @@ import {
   ScrollView,
   stripTerminalSequences,
   truncateToWidth,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
@@ -290,6 +292,16 @@ export class LiveAgentView {
     else return;
     this.saveViewport();
     this.host.requestRender();
+  }
+
+  /** Fullscreen wheel events scroll the transcript like Up/Down, even while composing. */
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (this.disposed || event.type !== "wheel") return undefined;
+    const lines = Math.trunc(event.wheelDelta ?? 0);
+    if (!Number.isFinite(lines) || lines === 0) return undefined;
+    this.scroll.scrollBy(lines);
+    this.saveViewport();
+    return { handled: true, render: true };
   }
 
   private saveViewport(): void {

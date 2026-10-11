@@ -76,7 +76,7 @@ The fullscreen watcher renders steer and agent messages (including thinking) as 
 
 - The bottom **Steer** input is focused initially. Type and press **Enter** to send to the inspected agent, including nested descendants, through the same service as `agent_steer`: running agents receive queued input; paused/completed/stopped agents resume their retained session. Empty input is ignored. Sending leaves the viewer open; failures are shown and preserve the draft for retry.
 - **Tab** switches between steering input and transcript controls. While typing, **c/t/l/r** are ordinary text and **Home/End** move the input cursor. Pasting never submits by itself.
-- **Up/Down, PageUp/PageDown** scroll and pause following in either mode. With transcript controls focused, **Home** scrolls to the start; **End** or **l** resumes following the live tail. Scroll/follow state is remembered per agent.
+- **Up/Down, PageUp/PageDown** scroll and pause following in either mode. In pi fullscreen mode (`tuiMode: "fullscreen"`) the **mouse wheel** scrolls the transcript the same way as Up/Down (using pi's `fullscreenWheelScrollLines`; Alt+wheel moves further) when the pointer is over the viewer. With transcript controls focused, **Home** scrolls to the start; **End** or **l** resumes following the live tail. Scroll/follow state is remembered per agent.
 - **Ctrl+R** (or **r** with transcript controls focused) retries an unavailable observation without starting a turn. Starting threads are watchable; stopped/completed threads remain readable.
 - Frames are sanitized, viewport-bounded and coalesced during bursts. Exit, root replacement and shutdown release observers/timers. Streaming deltas never enter persisted thread events.
 
