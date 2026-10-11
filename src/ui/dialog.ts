@@ -17,6 +17,8 @@ import {
   wrapTextWithAnsi,
   type Component,
   type TUI,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 
 export interface DialogHost {
@@ -522,6 +524,12 @@ export class DialogSession {
   handleInput(data: string): void {
     if (this.closed || this.inputLocked) return;
     this.child?.handleInput?.(data);
+  }
+
+  /** Fullscreen mouse events reach the overlay, so forward them to the active child view. */
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (this.closed || this.inputLocked) return undefined;
+    return this.child?.handleMouse?.(event);
   }
 
   invalidate(): void {

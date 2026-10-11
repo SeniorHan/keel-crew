@@ -350,6 +350,52 @@ test("DialogSession delegates focus and ignores keys after a child finishes", as
   assert.equal(driver.stats.forcedRenders, 0);
 });
 
+test("DialogSession forwards mouse events to the active child until it finishes", async () => {
+  const mounted: any[] = [];
+  const { driver, ctx } = sessionContext((component) => {
+    mounted.push(component);
+    return true;
+  });
+  const seen: unknown[] = [];
+  const event = {
+    type: "wheel",
+    button: "none",
+    x: 1,
+    y: 2,
+    screenX: 3,
+    screenY: 4,
+    width: 10,
+    height: 5,
+    shift: false,
+    alt: false,
+    ctrl: false,
+    wheelDelta: -2,
+  } as const;
+  await withDialogSession(ctx, async (sessionCtx) => {
+    let finish = (_value: string) => {};
+    const view = sessionCtx.ui.custom<string>((_host, _theme, _keys, done) => {
+      finish = done;
+      return {
+        handleMouse(received: unknown) {
+          seen.push(received);
+          return { handled: true };
+        },
+        handleInput() {},
+        invalidate() {},
+        render: () => ["view"],
+      };
+    }, DIALOG_OPTIONS);
+    while (!mounted.length) await new Promise((resolve) => setTimeout(resolve, 5));
+    const session = driver.session as DialogSession;
+    assert.deepEqual(session.handleMouse(event), { handled: true });
+    assert.deepEqual(seen, [event]);
+    finish("done");
+    assert.equal(await view, "done");
+    assert.equal(session.handleMouse(event), undefined, "finished views no longer get mouse input");
+    assert.equal(seen.length, 1);
+  });
+});
+
 test("withDialogSession shadows getter-only ui without mutating the original context", async () => {
   const { driver } = sessionContext(() => true);
   const notifications: string[] = [];
