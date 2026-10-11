@@ -4,6 +4,21 @@ Generated from version tags and merged GitHub pull requests. Do not edit this fi
 
 ## 0.x — Pre-1.0 releases
 
+### [v0.23.0](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.23.0) — Minor release (2026-10-11)
+
+<!-- Release notes generated using configuration in .github/release.yml at v0.23.0 -->
+
+#### What's Changed
+##### Merged pull requests
+* Add GitHub stars badge to README by @championswimmer with @Copilot in https://github.com/championswimmer/pi-subagent-manager/pull/46
+* Add portable loader palettes and w/s model reordering by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/47
+* Layer manager settings and add headless terminal testing skill by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/48
+
+#### New Contributors
+* @championswimmer with @Copilot made their first contribution in https://github.com/championswimmer/pi-subagent-manager/pull/46
+
+**Full Changelog**: https://github.com/championswimmer/pi-subagent-manager/compare/v0.22.0...v0.23.0
+
 ### [v0.22.0](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.22.0) — Minor release (2026-10-10)
 
 #### Highlights
