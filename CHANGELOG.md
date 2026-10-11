@@ -4,6 +4,18 @@ Generated from version tags and merged GitHub pull requests. Do not edit this fi
 
 ## 0.x — Pre-1.0 releases
 
+### [v0.26.0](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.26.0) — Minor release (2026-10-11)
+
+<!-- Release notes generated using configuration in .github/release.yml at v0.26.0 -->
+
+#### What's Changed
+##### Merged pull requests
+* fix: align settings override dots and restore [lab] labels by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/51
+* feat: support mouse wheel scrolling in subagent session viewer by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/52
+
+
+**Full Changelog**: https://github.com/championswimmer/pi-subagent-manager/compare/v0.25.0...v0.26.0
+
 ### [v0.25.0](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.25.0) — Minor release (2026-10-11)
 
 <!-- Release notes generated using configuration in .github/release.yml at v0.25.0 -->
