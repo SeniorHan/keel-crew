@@ -4,6 +4,19 @@ Generated from version tags and merged GitHub pull requests. Do not edit this fi
 
 ## 0.x — Pre-1.0 releases
 
+### [v0.27.0](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.27.0) — Minor release (2026-10-12)
+
+<!-- Release notes generated using configuration in .github/release.yml at v0.27.0 -->
+
+#### What's Changed
+##### Merged pull requests
+* feat: walk status widget tree ← full ← minimal with arrow keys by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/53
+* feat: restore defaults deletes the chosen scope's settings file by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/54
+* docs: make ttyd tests optional via npm run test:ttyd by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/55
+
+
+**Full Changelog**: https://github.com/championswimmer/pi-subagent-manager/compare/v0.26.0...v0.27.0
+
 ### [v0.26.0](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.26.0) — Minor release (2026-10-11)
 
 <!-- Release notes generated using configuration in .github/release.yml at v0.26.0 -->
