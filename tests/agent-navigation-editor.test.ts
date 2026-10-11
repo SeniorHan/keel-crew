@@ -32,14 +32,16 @@ function setup(bindings: KeybindingsConfig = {}, options: Partial<AgentNavigatio
   setKeybindings(keys);
   let opens = 0;
   let collapses = 0;
+  let expands = 0;
   const editor = new AgentNavigationEditor(new TuiMainScreen(new FakeTerminal()), theme, keys, {
     openTree: () => { opens++; }, canOpen: () => true,
     collapseWidget: () => { collapses++; }, canCollapse: () => true,
+    expandWidget: () => { expands++; }, canExpand: () => false,
     generation: () => 1, ...options,
   });
   editor.focused = true;
   editor.render(80);
-  return { editor, keys, opens: () => opens, collapses: () => collapses };
+  return { editor, keys, opens: () => opens, collapses: () => collapses, expands: () => expands };
 }
 
 test("Left opens at the beginning of the draft after stock dispatch, preserving text and cursor", async () => {
@@ -249,6 +251,49 @@ test("global keybinding conflicts disable navigation", async () => {
   editor.handleInput(LEFT);
   await settle();
   assert.equal(opens(), 0);
+});
+
+test("Left steps minimal → full before opening the tree, and Right never expands", async () => {
+  let collapsed = true;
+  const { editor, opens, expands, collapses } = setup({}, {
+    canExpand: () => collapsed,
+    canCollapse: () => !collapsed,
+    expandWidget: () => { collapsed = false; },
+  });
+  editor.setText("keep");
+  editor.handleInput(HOME);
+  editor.handleInput(LEFT);
+  await settle();
+  assert.equal(collapsed, false, "first Left expands");
+  assert.equal(opens(), 0);
+  editor.handleInput(LEFT);
+  await settle();
+  assert.equal(opens(), 1, "second Left opens the tree");
+  assert.equal(expands(), 0);
+  assert.equal(editor.getText(), "keep");
+  editor.handleInput(END);
+  editor.handleInput(RIGHT);
+  await settle();
+  assert.equal(collapses(), 1, "Right collapses again");
+  assert.equal(opens(), 1);
+});
+
+test("Left expansion is rechecked: it never falls through to the tree when it goes stale", async () => {
+  let canExpand = true;
+  const { editor, opens, expands } = setup({}, { canExpand: () => canExpand });
+  editor.handleInput(LEFT);
+  canExpand = false; // e.g. the widget changed while the microtask was queued
+  await settle();
+  assert.equal(expands(), 0);
+  assert.equal(opens(), 0);
+});
+
+test("Left without an expand step (minimal setting) opens the tree directly", async () => {
+  const { editor, opens, expands } = setup({}, { expandWidget: undefined, canExpand: undefined });
+  editor.handleInput(LEFT);
+  await settle();
+  assert.equal(opens(), 1);
+  assert.equal(expands(), 0);
 });
 
 test("Right collapses at the end of the draft after stock dispatch without changing it", async () => {

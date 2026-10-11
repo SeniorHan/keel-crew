@@ -319,7 +319,7 @@ for (const widgetMode of ["full", "minimal"] as const) {
 
 test("Right collapses for this session only, preserves Left entry and never saves preferences", async () => {
   const threads = [thread("running"), thread("paused", "/root/paused")];
-  await fixture(async ({ editor, widget, hooks, ctx, driver }) => {
+  await fixture(async ({ editor, widget, hooks, ctx }) => {
     const settingsFile = join(ctx.cwd, "subagent-manager", "settings.json");
     const configuredMode = () => loadManagerSettings({
       cwd: ctx.cwd, agentDir: ctx.cwd, includeProject: false,
@@ -333,10 +333,6 @@ test("Right collapses for this session only, preserves Left entry and never save
     assert.equal(configuredMode(), "full");
     assert.equal(existsSync(settingsFile), false);
 
-    main.handleInput("\x1b[D");
-    await settle();
-    assert.equal(driver.stats.outerOpens, 1);
-    assert.equal(widget().length, 1, "opening and closing the dialog keeps the override");
     await hooks.get("agent_start")!({}, ctx);
     await hooks.get("session_tree")!({}, ctx);
     assert.equal(widget().length, 1, "refresh, new turns and tree rebuilds preserve collapse");
@@ -354,6 +350,98 @@ test("Right collapses for this session only, preserves Left entry and never save
     assert.equal(configuredMode(), "full");
     assert.equal(existsSync(settingsFile), false);
   }, { threads });
+});
+
+const END = "\x1b[F";
+const LEFT = "\x1b[D";
+const RIGHT = "\x1b[C";
+
+test("full setting walks tree ← full ← minimal with Left/Right, one step at a time", async () => {
+  const threads = [thread("running"), thread("paused", "/root/paused")];
+  await fixture(async ({ editor, widget, driver }) => {
+    const main = editor()!;
+    // Closing the tree with Right on a leaf is the tree → full step.
+    driver.onChild = (component) => {
+      component.handleInput(END);
+      component.handleInput(RIGHT);
+      return true;
+    };
+    const full = widget().length;
+    assert.ok(full > 1);
+
+    main.handleInput(RIGHT); // full → minimal
+    await settle();
+    assert.equal(widget().length, 1);
+    assert.match(widget()[0]!, /← expand/, "collapsed line advertises the next Left step");
+    assert.equal(driver.stats.outerOpens, 0);
+
+    main.handleInput(RIGHT); // minimal is the right boundary
+    await settle();
+    assert.equal(widget().length, 1);
+
+    main.handleInput(LEFT); // minimal → full, not straight to the tree
+    await settle();
+    assert.equal(widget().length, full);
+    assert.equal(driver.stats.outerOpens, 0);
+
+    main.handleInput(LEFT); // full → tree
+    await settle();
+    assert.equal(driver.stats.outerOpens, 1);
+    assert.equal(widget().length, full, "tree → full returns to the full widget");
+
+    main.handleInput(RIGHT);
+    await settle();
+    main.handleInput(LEFT);
+    await settle();
+    assert.equal(widget().length, full);
+    main.handleInput(LEFT);
+    await settle();
+    assert.equal(driver.stats.outerOpens, 2, "the full cycle repeats");
+  }, { threads });
+});
+
+test("tree → full also leaves a session collapse that was set before the tree opened", async () => {
+  const threads = [thread("running")];
+  await fixture(async ({ editor, widget, command, ctx, driver }) => {
+    driver.onChild = (component) => {
+      component.handleInput(END);
+      component.handleInput(RIGHT);
+      return true;
+    };
+    const full = widget().length;
+    editor()!.handleInput(RIGHT);
+    await settle();
+    assert.equal(widget().length, 1);
+    await command.handler("tree", ctx);
+    assert.equal(driver.stats.outerOpens, 1);
+    assert.equal(widget().length, full);
+  }, { threads });
+});
+
+test("minimal setting walks tree ← minimal directly and never expands", async () => {
+  const threads = [thread("running")];
+  await fixture(async ({ editor, widget, driver }) => {
+    const main = editor()!;
+    driver.onChild = (component) => {
+      component.handleInput(END);
+      component.handleInput(RIGHT);
+      return true;
+    };
+    const before = widget();
+    assert.equal(before.length, 1);
+    assert.match(before[0]!, /← browser/);
+    main.handleInput(RIGHT); // already at the right boundary
+    await settle();
+    assert.deepEqual(widget(), before);
+    assert.equal(driver.stats.outerOpens, 0);
+    main.handleInput(LEFT); // minimal → tree
+    await settle();
+    assert.equal(driver.stats.outerOpens, 1);
+    assert.deepEqual(widget(), before, "tree → minimal");
+    main.handleInput(LEFT);
+    await settle();
+    assert.equal(driver.stats.outerOpens, 2);
+  }, { threads, widgetMode: "minimal" });
 });
 
 test("Right can collapse settled previews, but is harmless with no agents or minimal settings", async () => {

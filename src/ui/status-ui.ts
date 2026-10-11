@@ -114,6 +114,8 @@ export class StatusDialog {
       state: AgentTreeState;
       actions(path: string): void;
       fullscreen?: boolean;
+      /** Right on a leaf steps tree → widget; called just before the tree closes. */
+      returnToWidget?(): void;
     },
     private nerdFontIcons = false,
     private loaderStyle: LoaderStyle = "circle",
@@ -242,6 +244,12 @@ export class StatusDialog {
       else {
         const child = row?.hasChildren ? firstChild(rows, index) : undefined;
         if (child) this.selectedPath = child.path;
+        else if (this.navigation?.fullscreen) {
+          // Nothing left to fold or descend into: the next step right is the widget.
+          this.navigation.returnToWidget?.();
+          this.done(undefined);
+          return;
+        }
       }
     } else {
       let next = index;
@@ -355,7 +363,7 @@ export class StatusDialog {
       height,
       this.heading(rows, start, treeCount),
       body,
-      this.navigation ? "Esc main · ↑↓ select · ←→ fold · i Actions · Ctrl+C stop all" : FOOTER,
+      this.navigation ? "Esc main · ↑↓ select · ←→ fold · → widget · i Actions · Ctrl+C stop all" : FOOTER,
     );
   }
 
@@ -432,6 +440,8 @@ export class AgentNavigationController {
   private session: DialogSession | undefined;
   private opening: Promise<void> | undefined;
   private generation = 0;
+
+  constructor(private returnToWidget?: () => void) {}
 
   get isOpen(): boolean {
     return this.opening !== undefined;
@@ -527,6 +537,7 @@ export class AgentNavigationController {
                   {
                     state: this.tree,
                     fullscreen: true,
+                    returnToWidget: this.returnToWidget,
                     actions: (path) => finish({ kind: "actions", path }),
                   },
                   nerdFontIcons,

@@ -756,6 +756,19 @@ test("updateWidget retains full default and switches minimal/full in TUI and RPC
   );
 });
 
+test("minimal line advertises Left as expand only for a session collapse of full", () => {
+  const running = [thread("/root/job", { state: "running", startedAt: Date.now() })];
+  const line = (options?: { expandHint?: boolean }) =>
+    plain(renderAgentSummary(running, 80, theme, options))[0];
+  assert.match(line()!, /← browser/);
+  assert.match(line({ expandHint: true })!, /← expand/);
+  assert.doesNotMatch(line({ expandHint: true })!, /browser/);
+  assert.doesNotMatch(
+    plain(renderAgentSummary(running, 80, theme, { showBrowserHint: false, expandHint: true }))[0]!,
+    /←/,
+  );
+});
+
 test("full widget status strip resolves the current theme at render time", () => {
   let content: unknown;
   let current = theme;

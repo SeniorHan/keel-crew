@@ -741,6 +741,57 @@ test("showAgentTree clears the refresh timer on dispose, close, and open failure
   }
 });
 
+test("fullscreen tree: Right on a leaf steps to the widget; folding and the left edge stay local", () => {
+  const threads = [
+    thread("/root/run", { parent: "/root" }),
+    thread("/root/run/pause", { parent: "/root/run", state: "paused" }),
+  ];
+  const make = (fullscreen: boolean, withNavigation = true) => {
+    const events: string[] = [];
+    const dialog = new StatusDialog(
+      host(),
+      theme,
+      service(() => threads),
+      (path) => events.push(`done:${path}`),
+      undefined,
+      undefined,
+      withNavigation
+        ? {
+            state: { selectedPath: "/root", collapsed: new Set() },
+            fullscreen,
+            actions: () => {},
+            returnToWidget: () => events.push("widget"),
+          }
+        : undefined,
+    );
+    return { dialog, events };
+  };
+
+  const { dialog, events } = make(true);
+  moveTo(dialog, "/root/run");
+  dialog.handleInput(RIGHT); // enters the open node instead of leaving
+  assert.deepEqual(events, []);
+  dialog.handleInput(RIGHT); // leaf: tree → widget, widget restored before closing
+  assert.deepEqual(events, ["widget", "done:undefined"]);
+
+  const collapsed = make(true);
+  moveTo(collapsed.dialog, "/root/run");
+  collapsed.dialog.handleInput(LEFT);
+  collapsed.dialog.handleInput(RIGHT); // expands a folded node first
+  assert.deepEqual(collapsed.events, []);
+  collapsed.dialog.handleInput(HOME);
+  collapsed.dialog.handleInput(LEFT); // folds the main row
+  collapsed.dialog.handleInput(LEFT); // left edge: no parent, tree is the boundary
+  assert.deepEqual(collapsed.events, []);
+
+  // Only the root-owned fullscreen tree participates; other dialogs keep local Right.
+  for (const other of [make(false), make(true, false)]) {
+    moveTo(other.dialog, "/root/run/pause");
+    other.dialog.handleInput(RIGHT);
+    assert.deepEqual(other.events, []);
+  }
+});
+
 test("navigation root Enter closes with no execution effect; empty tree has a useful hint", async () => {
   const tree = launchTree(() => []);
   const dialog = await until(() => tree.mounted[0], "empty tree");
