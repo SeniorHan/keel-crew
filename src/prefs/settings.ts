@@ -486,3 +486,29 @@ export function setManagerProjectSettings(options: ManagerSettingsOptions & {
   }
   return entry.filePath;
 }
+
+/** Resolved settings.json path for a scope; the file may not exist. */
+export function managerSettingsPath(options: ManagerSettingsOptions, scope: ManagerSaveScope): string {
+  if (scope === "project") {
+    if (!options.includeProject) throw new Error("Project settings are not enabled/trusted");
+    return layer(options.cwd, [".pi", "agent", "subagent-manager"]).filePath;
+  }
+  return layer(options.agentDir, ["subagent-manager"]).filePath;
+}
+
+/** Restore a scope's defaults by deleting its settings file (nothing is written). A missing file is not an error. */
+export function deleteManagerSettings(options: ManagerSettingsOptions & { scope: ManagerSaveScope }): {
+  filePath: string;
+  deleted: boolean;
+} {
+  if (options.scope !== "user" && options.scope !== "project")
+    throw new Error("Invalid settings scope");
+  const filePath = managerSettingsPath(options, options.scope);
+  const entry = options.scope === "project"
+    ? layer(options.cwd, [".pi", "agent", "subagent-manager"])
+    : layer(options.agentDir, ["subagent-manager"]);
+  // Malformed JSON is removable; symlinks and non-files are refused by settingsFileExists.
+  if (!settingsFileExists(entry)) return { filePath, deleted: false };
+  unlinkSync(entry.filePath);
+  return { filePath, deleted: true };
+}
