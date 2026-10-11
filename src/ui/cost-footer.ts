@@ -30,13 +30,13 @@ export function footerUsage(entries: readonly SessionEntry[]) {
 }
 export const COST_WIDGET_ID = "subagent_cost";
 export const COST_WIDGET_EVENT = "pi-footer:update-widget";
-export const COST_ICON = "\uf0d6";
+export const COST_ICON = "\uf0d6"; // nf-fa-money_bill
 
 export function costIconGlyph(icon: CostIcon, nerdFontIcons: boolean): string {
   const glyphs = {
     money: { emoji: "💵", nerd: COST_ICON },
-    coins: { emoji: "🪙", nerd: "\u{f0512}" },
-    wallet: { emoji: "👛", nerd: "\u{f055d}" },
+    coins: { emoji: "🪙", nerd: "\uede8" }, // nf-fa-coins
+    wallet: { emoji: "👛", nerd: "\uee1e" }, // nf-fa-wallet
   };
   return glyphs[icon][nerdFontIcons ? "nerd" : "emoji"];
 }

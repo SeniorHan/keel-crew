@@ -308,8 +308,8 @@ test("switching transports clears old values and removes only our own fallback f
 test("all destinations and the fallback honor independent values and both icon families", () => {
   const glyphs = {
     money: ["💵", "\uf0d6"],
-    coins: ["🪙", "\u{f0512}"],
-    wallet: ["👛", "\u{f055d}"],
+    coins: ["🪙", "\uede8"],
+    wallet: ["👛", "\uee1e"],
   };
   for (const destination of ["pi-status", "pi-footer-status", "pi-footer-event", "fallback"] as const) {
     const manager = SessionManager.inMemory("/tmp/test");

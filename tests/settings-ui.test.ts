@@ -890,7 +890,7 @@ test("Footer icon offers three previews from the draft Nerd Font setting", async
       const picker = result.menus.find((menu) => menu.title.startsWith("Footer icon"))!;
       assert.equal(picker.title, `Footer icon · ${nerd ? "Nerd Font" : "Emoji"}`);
       assert.deepEqual(picker.rows.map((row) => row.id), ["money", "coins", "wallet"]);
-      assert.deepEqual(picker.rows.map((row) => row.value), nerd ? ["\uf0d6", "\u{f0512}", "\u{f055d}"] : ["💵", "🪙", "👛"]);
+      assert.deepEqual(picker.rows.map((row) => row.value), nerd ? ["\uf0d6", "\uede8", "\uee1e"] : ["💵", "🪙", "👛"]);
       assert.equal(result.loaded.settings.costIcon, icon);
       assert.equal(result.loaded.settings.nerdFontIcons, nerd);
     }
