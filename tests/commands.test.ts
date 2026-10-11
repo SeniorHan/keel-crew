@@ -14,7 +14,11 @@ import { AGENT_COLORS } from "../src/prefs/config.ts";
 import piSubagent from "../src/index.ts";
 import { DEFAULT_MANAGER_SETTINGS, loadManagerSettings } from "../src/prefs/settings.ts";
 import { subagentPrompt } from "../src/orch/prompt.ts";
-import { IMPORT_REQUEST_PREFIX, importWasOffered, markImportOffered } from "../src/prefs/agent-import.ts";
+import {
+  IMPORT_REQUEST_PREFIX,
+  importWasOffered,
+  markImportOffered,
+} from "../src/prefs/agent-import.ts";
 import { createDialogDriver } from "./helpers/dialogDriver.ts";
 
 async function withCommands(
@@ -36,7 +40,10 @@ async function withCommands(
   process.env.PI_CODING_AGENT_DIR = cwd;
   if (options.initialMode) {
     mkdirSync(join(cwd, "subagent-manager"), { recursive: true });
-    writeFileSync(join(cwd, "subagent-manager", "settings.json"), JSON.stringify({ subagentMode: options.initialMode }));
+    writeFileSync(
+      join(cwd, "subagent-manager", "settings.json"),
+      JSON.stringify({ subagentMode: options.initialMode }),
+    );
   } else markImportOffered(cwd); // Enabled command tests do not scan external agent directories.
   const sessionManager = SessionManager.inMemory(cwd);
   const hooks = new Map<string, Function>();
@@ -65,7 +72,9 @@ async function withCommands(
   const pi = {
     getCommands: () => [],
     events: { emit() {} },
-    registerTool(tool: any) { tools.set(tool.name, tool); },
+    registerTool(tool: any) {
+      tools.set(tool.name, tool);
+    },
     registerCommand: (name: string, definition: any) => {
       assert.equal(name, "agents");
       command = definition;
@@ -83,7 +92,9 @@ async function withCommands(
     ui: {
       theme: driver.theme,
       setStatus() {},
-      setWidget(_key: string, widget: unknown) { widgets.push(widget); },
+      setWidget(_key: string, widget: unknown) {
+        widgets.push(widget);
+      },
       notify: (text: string) => notifications.push(text),
       custom: driver.custom,
     },
@@ -179,24 +190,33 @@ test("root turn lifecycle collapses the settled preview without losing the agent
 });
 
 test("off startup is silent: no onboarding, visible widget, or tool exposure", async () => {
-  await withCommands(async ({ hooks, ctx, tools, renders, notifications, widgets, cwd }) => {
-    assert.equal(importWasOffered(cwd), false);
-    assert.deepEqual(renders, []);
-    assert.deepEqual(notifications, []);
-    assert.ok(widgets.every((widget) => widget === undefined));
-    assert.ok([...tools.values()].every((tool) => tool.exposure === "hidden"));
-    assert.equal(await hooks.get("before_agent_start")!({ systemPrompt: "Main", prompt: "Task" }, ctx), undefined);
-  }, { initialMode: "off" });
+  await withCommands(
+    async ({ hooks, ctx, tools, renders, notifications, widgets, cwd }) => {
+      assert.equal(importWasOffered(cwd), false);
+      assert.deepEqual(renders, []);
+      assert.deepEqual(notifications, []);
+      assert.ok(widgets.every((widget) => widget === undefined));
+      assert.ok([...tools.values()].every((tool) => tool.exposure === "hidden"));
+      assert.equal(
+        await hooks.get("before_agent_start")!({ systemPrompt: "Main", prompt: "Task" }, ctx),
+        undefined,
+      );
+    },
+    { initialMode: "off" },
+  );
 });
 
 test("orchestration skips first-run import and explains the mode required for manual import", async () => {
-  await withCommands(async ({ command, ctx, renders, notifications, cwd }) => {
-    assert.equal(importWasOffered(cwd), false);
-    assert.deepEqual(renders, []);
-    await command.handler("import", ctx);
-    assert.deepEqual(renders, []);
-    assert.match(notifications.at(-1)!, /Agent import requires Opportunistic mode/);
-  }, { initialMode: "orchestration" });
+  await withCommands(
+    async ({ command, ctx, renders, notifications, cwd }) => {
+      assert.equal(importWasOffered(cwd), false);
+      assert.deepEqual(renders, []);
+      await command.handler("import", ctx);
+      assert.deepEqual(renders, []);
+      assert.match(notifications.at(-1)!, /Agent import requires Opportunistic mode/);
+    },
+    { initialMode: "orchestration" },
+  );
 });
 
 test("saving mode changes updates tools and prompt immediately", async () => {
@@ -206,10 +226,20 @@ test("saving mode changes updates tools and prompt immediately", async () => {
       await command.handler("settings", ctx);
       for (const tool of tools.values())
         assert.equal(tool.exposure, mode === "off" ? "hidden" : "direct");
-      const event = await hooks.get("before_agent_start")!({ systemPrompt: "Main", prompt: "Work" }, ctx);
+      const event = await hooks.get("before_agent_start")!(
+        { systemPrompt: "Main", prompt: "Work" },
+        ctx,
+      );
       if (mode === "off") assert.equal(event, undefined);
-      else assert.equal(event.systemPrompt, `Main\n\n${subagentPrompt({ ...DEFAULT_MANAGER_SETTINGS, subagentMode: mode })}`);
-      assert.equal(loadManagerSettings({ cwd, agentDir: cwd, includeProject: false }).settings.subagentMode, mode);
+      else
+        assert.equal(
+          event.systemPrompt,
+          `Main\n\n${subagentPrompt({ ...DEFAULT_MANAGER_SETTINGS, subagentMode: mode })}`,
+        );
+      assert.equal(
+        loadManagerSettings({ cwd, agentDir: cwd, includeProject: false }).settings.subagentMode,
+        mode,
+      );
     }
   });
 });
@@ -219,7 +249,13 @@ test("off does not acknowledge migration or inject guidance", async () => {
     replies.push("subagentMode", "off", "save");
     await command.handler("settings", ctx);
     rmSync(join(cwd, "subagent-manager", ".import-offered"));
-    assert.equal(await hooks.get("before_agent_start")!({ systemPrompt: "Main", prompt: `${IMPORT_REQUEST_PREFIX}manual request` }, ctx), undefined);
+    assert.equal(
+      await hooks.get("before_agent_start")!(
+        { systemPrompt: "Main", prompt: `${IMPORT_REQUEST_PREFIX}manual request` },
+        ctx,
+      ),
+      undefined,
+    );
     assert.equal(importWasOffered(cwd), false);
   });
 });
@@ -263,6 +299,28 @@ test("subcommand completions are fuzzy and unknown subcommands report usage", as
     assert.doesNotMatch(notifications.at(-1)!, /thread/);
     await command.handler("thread /root/alpha", ctx);
     assert.match(notifications.at(-1)!, /Usage:.*tree/);
+  });
+});
+
+test("fork:/fresh: complete every agent type", async () => {
+  await withCommands(async ({ command }) => {
+    const values = (prefix: string) =>
+      (command.getArgumentCompletions(prefix) as { value: string }[] | null)?.map((c) => c.value);
+    assert.deepEqual(values("f"), ["fork:", "fresh:"]);
+    const forks = values("fo")!;
+    assert.ok(forks.length > 1 && forks.every((v) => v.startsWith("fork:")));
+    const names = forks.map((v) => v.slice(5));
+    assert.deepEqual(
+      values("fr"),
+      names.map((n) => `fresh:${n}`),
+    );
+    assert.deepEqual(values("fork:"), forks);
+    assert.deepEqual(
+      values("fresh:"),
+      names.map((n) => `fresh:${n}`),
+    );
+    assert.deepEqual(values(`fresh:${names[0]}`)?.includes(`fresh:${names[0]}`), true);
+    assert.equal(command.getArgumentCompletions(`fork:${names[0]} do`), null);
   });
 });
 
@@ -357,10 +415,16 @@ test("saving widget mode refreshes immediately and reload reads the persisted ch
         assert.match(lines[0]!, /0 running.*2 completed.*↑0.*↓0/);
         assert.doesNotMatch(lines.join("\n"), /Press ←/);
       } else assert.ok(lines.length > 1);
-      assert.equal(loadManagerSettings({ cwd, agentDir: cwd, includeProject: false }).settings.widgetMode, mode);
+      assert.equal(
+        loadManagerSettings({ cwd, agentDir: cwd, includeProject: false }).settings.widgetMode,
+        mode,
+      );
     }
     const { settings } = loadManagerSettings({ cwd, agentDir: cwd, includeProject: false });
-    writeFileSync(join(cwd, "subagent-manager", "settings.json"), JSON.stringify({ ...settings, widgetMode: "minimal" }));
+    writeFileSync(
+      join(cwd, "subagent-manager", "settings.json"),
+      JSON.stringify({ ...settings, widgetMode: "minimal" }),
+    );
     await command.handler("reload", ctx);
     assert.equal(renderWidget().length, 1, "Reload applies a choice changed on disk");
     await hooks.get("session_tree")!({}, ctx);
@@ -398,7 +462,10 @@ test("agents reap cancel and dismiss preserve completed sessions", async () => {
       assert.deepEqual(command.getArgumentCompletions("tree /root/old"), [
         { value: "tree /root/old", label: "/root/old" },
       ]);
-      assert.equal(notifications.some((message) => message.startsWith("Reaped")), false);
+      assert.equal(
+        notifications.some((message) => message.startsWith("Reaped")),
+        false,
+      );
       await hooks.get("session_tree")!({}, ctx);
     }
   });

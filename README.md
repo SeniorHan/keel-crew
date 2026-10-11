@@ -65,14 +65,16 @@ They inherit your current model until you set preferences. Details: [docs/defaul
 
 ## Commands
 
-| Command          | Opens                                                  |
-| ---------------- | ------------------------------------------------------ |
-| `/agents`        | Settings (mode, limits, model picking, tool filtering) |
-| `/agents types`  | Agent-type browser and editor                          |
-| `/agents tree`   | Fullscreen tree and live viewer with manual steering |
-| `/agents import` | Import agents from other subagent extensions           |
-| `/agents reload` | Reload definitions and settings                        |
-| `/agents reap`   | Confirm the eligible count, then forget completed agents and free retained-thread slots (cannot be resumed); preserves active parents and ancestors of retained threads. Session files remain on disk. |
+| Command                        | Opens                                                                                                                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/agents`                      | Settings (mode, limits, model picking, tool filtering)                                                                                                                                                 |
+| `/agents types`                | Agent-type browser and editor                                                                                                                                                                          |
+| `/agents tree`                 | Fullscreen tree and live viewer with manual steering                                                                                                                                                   |
+| `/agents import`               | Import agents from other subagent extensions                                                                                                                                                           |
+| `/agents fork:<agent> <task>`  | Start a detached agent that inherits your current conversation (autocompletes every available agent)                                                                                                   |
+| `/agents fresh:<agent> <task>` | Start a detached agent with no inherited context (autocompletes every available agent)                                                                                                                 |
+| `/agents reload`               | Reload definitions and settings                                                                                                                                                                        |
+| `/agents reap`                 | Confirm the eligible count, then forget completed agents and free retained-thread slots (cannot be resumed); preserves active parents and ancestors of retained threads. Session files remain on disk. |
 
 A live **Agents** widget sits above the input box. Choose **Full** (the existing tree) or **Minimal** (colored status counts and running-agent token totals, plus the browser hint) under **Status Widget** in `/agents` settings. In the fullscreen tree, **Enter** opens an agent's live view. Type in the bottom **Steer** input and press **Enter** to send it a steering message, including nested agents. **Tab** switches between input and transcript controls, **Escape** returns, and **i** in the tree opens existing thread actions. A status strip below the previews shows how many agents are running and **Press ← to open subagent browser**. Once the main turn ends and all subagents are idle, the preview collapses to a single status-count line. A fresh prompt hides previously settled agents from the widget; they reappear only when resumed, and `/agents tree` always keeps them available. While subagents are starting or running, press **Left** at the start of the main draft to open it; otherwise Left stays native. Press **Right** at the end of the draft (or in an empty input) to collapse the widget to one line for this session only, without changing saved settings. `/agents tree` remains available regardless of agent activity. See [live navigation](docs/tools-and-ui.md#live-agent-navigation) for controls and compatibility.
 

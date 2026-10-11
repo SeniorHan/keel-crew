@@ -649,8 +649,44 @@ export default function piSubagent(pi: ExtensionAPI): void {
     context = undefined;
   });
   const agentSubcommands = ["tree", "settings", "types", "import", "reload", "reap"] as const;
+  const spawnModes = ["fork", "fresh"] as const;
+  /** `/agents fork:<type> <task>` inherits the main conversation; `fresh:` starts with no context. */
+  const spawnFromCommand = async (
+    ctx: ExtensionContext,
+    mode: (typeof spawnModes)[number],
+    typeName: string,
+    task: string,
+  ) => {
+    if (limits.subagentMode === "off") {
+      ctx.ui.notify("Subagent Mode is off. Change it in /agents settings.", "warning");
+      return;
+    }
+    const current = requireManager();
+    if (!store.list().some((type) => type.name === typeName)) {
+      ctx.ui.notify(`Unknown agent type: ${typeName}`, "error");
+      return;
+    }
+    const base = typeName.replace(/[^A-Za-z0-9_-]/g, "-").replace(/^[^A-Za-z0-9]+/, "") || "agent";
+    const taken = new Set(current.list().map((thread) => thread.path));
+    const prefix = mode === "fork" ? "/root/" : "/";
+    let n = 1;
+    while (taken.has(`${prefix}${base}-${n}`)) n++;
+    const path = `${prefix}${base}-${n}`;
+    try {
+      await current.scope("/root").spawn({ path, type: typeName, task, wait: false });
+      persist();
+      refreshWidget(ctx);
+      ctx.ui.notify(
+        `Started ${typeName} (${mode === "fork" ? "forked context" : "fresh context"}) at ${path}`,
+        "info",
+      );
+    } catch (error) {
+      ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+    }
+  };
   pi.registerCommand("agents", {
-    description: "Configure agent settings, import/edit definitions, or show the live tree",
+    description:
+      "Configure agent settings, show the live tree, or run /agents fork:<agent> | fresh:<agent> <task>",
     getArgumentCompletions: (argumentText) => {
       const text = argumentText.trimStart();
       const completed = text.match(/^(\S+)(\s+)([\s\S]*)$/);
@@ -662,9 +698,33 @@ export default function piSubagent(pi: ExtensionAPI): void {
             .filter((path) => path !== "/root");
           const matched = fuzzyFilter(paths, completed[3]!.trimStart(), (path) => path);
           if (matched.length === 0) return null;
-          return matched.map((path) => ({ value: `tree ${path}`, label: path }));
+          return matched.map((path) => ({
+            value: `tree ${path}`,
+            label: path,
+          }));
         }
         if ((agentSubcommands as readonly string[]).includes(command)) return null;
+        if (/^(fork|fresh):/.test(command)) return null;
+      }
+      const lower = text.toLowerCase();
+      const colon = lower.indexOf(":");
+      // "fo", "fork", "fork:", "fork:wo" -> every matching `fork:<agent>` / `fresh:<agent>`.
+      if (lower === "f")
+        return spawnModes.map((mode) => ({ value: `${mode}:`, label: `${mode}:` }));
+      const modes = spawnModes.filter((mode) =>
+        colon >= 0 ? lower.slice(0, colon) === mode : lower.length >= 2 && mode.startsWith(lower),
+      );
+      if (modes.length) {
+        const names = store.list().map((type) => type.name);
+        const filter = colon >= 0 ? lower.slice(colon + 1) : "";
+        const matched = filter ? fuzzyFilter(names, filter, (name) => name) : names;
+        const out = modes.flatMap((mode) =>
+          matched.map((name) => ({
+            value: `${mode}:${name}`,
+            label: `${mode}:${name}`,
+          })),
+        );
+        if (out.length) return out;
       }
       const matched = fuzzyFilter([...agentSubcommands], text, (name) => name);
       if (matched.length === 0) return null;
@@ -672,7 +732,13 @@ export default function piSubagent(pi: ExtensionAPI): void {
     },
     handler: async (args, ctx) => {
       const [command, ...rest] = args.trim().split(/\s+/);
-      if (command === "import") {
+      const spawnMatch = args.trim().match(/^(fork|fresh):(\S+)(?:\s+([\s\S]*))?$/);
+      if (spawnMatch) {
+        const task = spawnMatch[3]?.trim();
+        if (!task)
+          ctx.ui.notify(`Usage: /agents ${spawnMatch[1]}:${spawnMatch[2]} <task>`, "warning");
+        else await spawnFromCommand(ctx, spawnMatch[1] as "fork" | "fresh", spawnMatch[2]!, task);
+      } else if (command === "import") {
         await importAgents(ctx, false);
       } else if (command === "types") {
         await editAgentTypes(ctx, store, limits.nerdFontIcons, {
@@ -747,7 +813,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
         );
       } else
         ctx.ui.notify(
-          "Usage: /agents [tree [path] | settings | types | import | reload | reap]",
+          "Usage: /agents [tree [path] | settings | types | import | reload | reap | fork:<agent> <task> | fresh:<agent> <task>]",
           "warning",
         );
     },
