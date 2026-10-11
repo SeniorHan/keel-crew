@@ -191,6 +191,7 @@ export class DialogMenu {
     selectedId?: string,
     readonly footer = "↑↓ navigate · Enter select · Esc close",
     private saveId?: string,
+    private renderLegend?: (theme: Theme) => string,
   ) {
     const index = rows.findIndex((row) => row.id === selectedId);
     if (index >= 0) this.selected = index;
@@ -224,11 +225,16 @@ export class DialogMenu {
   render(width: number): string[] {
     const height = dialogHeight(this.host);
     const inner = Math.max(0, width - 4);
+    const legend = this.renderLegend
+      ? wrapTextWithAnsi(this.renderLegend(this.theme), Math.max(1, inner - 1))
+          .slice(0, Math.max(0, height - 8))
+          .map((line) => ` ${line}`)
+      : [];
     const help = (this.rows[this.selected]?.help ?? "")
       .split(/\r\n?|\n/)
       .flatMap((line) => wrapTextWithAnsi(dialogText(line), Math.max(1, inner - 1)))
-      .slice(0, Math.max(1, height - 7));
-    this.viewport = Math.max(1, height - 6 - help.length);
+      .slice(0, Math.max(1, height - 7 - legend.length));
+    this.viewport = Math.max(1, height - 6 - help.length - legend.length);
     const start = Math.max(
       0,
       Math.min(
@@ -262,6 +268,12 @@ export class DialogMenu {
       "",
       ...help.map((line) => this.theme.fg("muted", ` ${line}`)),
     ];
+    if (legend.length) {
+      const budget = Math.max(0, height - 4 - legend.length);
+      body.length = Math.min(body.length, budget);
+      while (body.length < budget) body.push("");
+      body.push(...legend);
+    }
     return frameDialog(
       this.theme,
       width,
@@ -286,7 +298,7 @@ export async function dialogMenu(
   ctx: ExtensionContext,
   title: string,
   rows: DialogRow[],
-  options: { selectedId?: string; footer?: string; saveId?: string } = {},
+  options: { selectedId?: string; footer?: string; saveId?: string; renderLegend?: (theme: Theme) => string } = {},
 ): Promise<string | undefined> {
   return ctx.ui.custom(
     (host, theme, _keys, done) =>
@@ -299,6 +311,7 @@ export async function dialogMenu(
         options.selectedId,
         options.footer,
         options.saveId,
+        options.renderLegend,
       ),
     DIALOG_OPTIONS,
   );

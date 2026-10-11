@@ -24,11 +24,12 @@ type Menu = { title: string; rows: DialogRow[]; selectedId: string | undefined }
 async function run(
   t: TestContext,
   actions: (string | undefined)[],
-  { settings, trusted = false, width = 80, rows = 24, root: existingRoot, agentDir: existingAgentDir, global, project, onMenu } = {} as {
+  { settings, trusted = false, width = 80, rows = 24, root: existingRoot, agentDir: existingAgentDir, global, project, onMenu, uiTheme = theme } = {} as {
     settings?: ManagerSettings;
     trusted?: boolean;
     width?: number;
     rows?: number;
+    uiTheme?: Theme;
     root?: string;
     agentDir?: string;
     global?: Partial<ManagerSettings> | string;
@@ -51,7 +52,7 @@ async function run(
   const notificationTypes: string[] = [];
   const menus: Menu[] = [];
   const driver = createDialogDriver({
-    theme,
+    theme: uiTheme,
     width,
     rows,
     choices: actions,
@@ -621,11 +622,35 @@ test("saved provenance distinguishes both layers, equal values, and projects rev
     assert.equal(coloredLabel(result.menus[0]!, "modelSelection"), "Model Picking");
     assert.equal(coloredLabel(result.menus[1]!, "maxLevels"), coloredLabel(result.menus[0]!, "maxLevels"),
       "unsaved edits do not change saved provenance");
-    assert.match(result.menus[0]!.rows.find((row) => row.id === "maxLevels")!.help!, /Dots.*Global.*Current Project/);
+    assert.doesNotMatch(result.menus[0]!.rows.find((row) => row.id === "maxLevels")!.help!, /Dots|Saved:/);
+    const text = stripTerminalSequences(result.renders[0]!.join("\n"));
+    assert.match(text, /Saved:/);
+    assert.match(text, /Global/);
+    assert.match(text.replace(/[│\n]/g, " ").replace(/\s+/g, " "), /Current Project/);
+    assert.match(text, /Both/);
     assert.ok(result.renders.every((lines) => lines.every((line) => visibleWidth(line) <= width)));
     assert.equal(result.menus[1]!.selectedId, "maxLevels", "the captured final frame focuses the changed setting");
     assert.ok(stripTerminalSequences(result.renders.at(-1)!.join("\n")).includes("● ●"),
       "both saved-layer dots render when Maximum levels is selected, including narrow viewports");
+  }
+});
+
+test("saved legend keeps themed dots in a fixed bottom row, outside muted hints", async (t) => {
+  const uiTheme = {
+    fg: (color: string, text: string) => {
+      const code = { accent: 35, warning: 33, muted: 90 }[color];
+      return code ? `\x1b[${code}m${text}\x1b[0m` : text;
+    },
+  } as Theme;
+  const result = await run(t, ["maxLevels", "8", "cancel"], { uiTheme });
+  assert.ok(result.renders.some((frame) => frame.some((line) => line.includes("Saved:"))));
+  for (const lines of result.renders.filter((frame) => frame.some((line) => line.includes("Saved:")))) {
+    const legendIndex = lines.findIndex((line) => line.includes("Saved:"));
+    assert.equal(legendIndex, lines.length - 4, "legend stays immediately above the footer separator");
+    const legend = lines[legendIndex]!;
+    assert.match(legend, /\x1b\[35m●\x1b\[0m Global/);
+    assert.match(legend, /\x1b\[33m●\x1b\[0m Current Project/);
+    assert.match(legend, /\x1b\[35m●\x1b\[0m \x1b\[33m●\x1b\[0m Both/);
   }
 });
 

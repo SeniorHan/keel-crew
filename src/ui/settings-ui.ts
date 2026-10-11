@@ -1,4 +1,4 @@
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { ConfigStore } from "../prefs/config.ts";
 import {
   canOpenDialog,
@@ -163,8 +163,14 @@ function withProvenance(row: DialogRow, keys: (keyof ManagerSettings)[], layers:
     renderLabel: (label, theme) =>
       (globalChanged ? theme.fg("accent", "●") + " " : "") +
       (projectChanged ? theme.fg("warning", "●") + " " : "") + label.replace(/^\[labs\] /, ""),
-    help: `${row.label}\n${row.help ?? ""}\nDots (saved): accent ● Global; warning ● Current Project; both ● ● changed in both.`,
+    help: `${row.label}\n${row.help ?? ""}`,
   };
+}
+
+function provenanceLegend(theme: Theme): string {
+  const global = theme.fg("accent", "●");
+  const project = theme.fg("warning", "●");
+  return theme.fg("muted", "Saved: ") + `${global} Global · ${project} Current Project · ${global} ${project} Both`;
 }
 
 /** Edits the shared draft; only the outer settings screen saves or applies it. */
@@ -194,7 +200,7 @@ async function configureFooterDisplay(ctx: ExtensionCommandContext, draft: Manag
     ] as DialogRow[]).map((row) => {
       const key = ({ location: "costDisplay", value: "costValue", icon: "costIcon" } as Record<string, keyof ManagerSettings>)[row.id];
       return key ? withProvenance(row, [key], layers) : row;
-    }), { selectedId, footer: "↑↓/Tab navigate · Enter edit · Esc back" });
+    }), { selectedId, renderLegend: provenanceLegend, footer: "↑↓/Tab navigate · Enter edit · Esc back" });
     if (!action || action === "back") return;
     selectedId = action;
     if (action === "location") {
@@ -381,6 +387,7 @@ async function configureAgentsDialog(
       {
         selectedId,
         saveId: "save",
+        renderLegend: provenanceLegend,
         footer: "↑↓/Tab navigate · Enter edit · Ctrl+S save · Esc cancel",
       },
     );
