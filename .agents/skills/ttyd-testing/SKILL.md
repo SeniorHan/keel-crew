@@ -10,6 +10,12 @@ Use `scripts/terminal.mjs` to keep a real PTY, ttyd, and an isolated headless Ch
 
 This is the terminal-specific Playwright harness, not the user's live Chrome session. Never attach it to the user's browser profile, tabs, or logged-in state.
 
+## When to use (optional, never a gate)
+
+ttyd tests are **optional**. They are not part of `npm test`, CI, `prepublishOnly`, or the committing-push-merge flow, and no commit/PR/release requires them. Run them only when needed: TUI/visual changes that need a real rendered check, or after changing this harness. Skip them for logic-only changes.
+
+On demand: `npm run test:ttyd` (runs the harness smoke and lifecycle checks; needs ttyd, Playwright and Chromium, see `doctor`).
+
 ## Safety and preparation
 
 - These commands run with the local user's privileges. **A PTY is not a sandbox.** Do not run untrusted commands.

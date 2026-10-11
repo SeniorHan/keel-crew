@@ -39,6 +39,7 @@
     "check": "tsc --noEmit",
     "changelog": "tsx .github/scripts/changelog.ts",
     "test": "tsx --test tests/*.test.ts",
+    "test:ttyd": "node .agents/skills/ttyd-testing/scripts/smoke-test.mjs && node .agents/skills/ttyd-testing/scripts/lifecycle-test.mjs",
     "test:coverage": "mkdir -p coverage && tsx --test --experimental-test-coverage --test-coverage-include='src/**' --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info tests/*.test.ts",
     "prepublishOnly": "npm run check && npm test",
     "format": "prettier --write --print-width 100 src tests agents .github docs/default-agents.md README.md",
