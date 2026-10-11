@@ -141,6 +141,45 @@ test("menu values keep their warning color and column even on the selected row",
   }
 });
 
+test("menu indicators occupy fixed middle slots without shifting labels or values", () => {
+  const coloredTheme = {
+    fg: (color: string, text: string) => {
+      const code = color === "warning" ? 33 : color === "accent" ? 36 : undefined;
+      return code ? `\x1b[${code}m${text}\x1b[0m` : text;
+    },
+  } as Theme;
+  const indicators = ["● ●", "●  ", "  ●", "   ", "   "];
+  const menu = new DialogMenu(host(), coloredTheme, "Settings", [
+    { id: "both", label: "Maximum levels", value: "1",
+      renderIndicators: (theme) => theme.fg("accent", "●") + " " + theme.fg("warning", "●") },
+    { id: "global", label: "[lab] Nerd Font icons", value: "2",
+      renderIndicators: (theme) => theme.fg("accent", "●") + "  " },
+    { id: "project", label: "Concurrent agents", value: "3",
+      renderIndicators: (theme) => "  " + theme.fg("warning", "●") },
+    { id: "default", label: "Status Widget", value: "4", renderIndicators: () => "   " },
+    { id: "save", label: "Save and apply", value: "5", valueColor: "warning" },
+  ], () => {});
+  for (let selected = 0; selected < indicators.length; selected++) {
+    for (const width of [20, 40, 80]) {
+      const lines = menu.render(width);
+      bounded(lines, width, 24);
+      const fields = lines.slice(2, 7).map(stripTerminalSequences);
+      for (const [index, line] of fields.entries()) {
+        const columns = line.split("│");
+        assert.equal(columns[2], ` ${indicators[index]} `);
+        assert.equal(columns[1]!.includes("●"), false, "dots never prefix the name");
+        assert.equal(columns[3]!.trim(), String(index + 1));
+        assert.equal(line.indexOf("│", 1), fields[0]!.indexOf("│", 1));
+        assert.equal(line.lastIndexOf("│", line.length - 2), fields[0]!.lastIndexOf("│", fields[0]!.length - 2));
+      }
+      assert.match(lines[2]!, /\x1b\[36m●\x1b\[0m \x1b\[33m●\x1b\[0m/);
+      assert.match(lines[4]!, /\x1b\[33m●\x1b\[0m/);
+      if (width === 80) assert.match(fields[1]!, /\[lab\] Nerd Font icons/);
+    }
+    menu.handleInput(DOWN);
+  }
+});
+
 test("menu wraps long help text and reserves space for it", () => {
   const help = "Global saves your defaults for every project. Trusted project settings override these defaults in this project. Switching scope only changes where you save, not the values shown.";
   const rows = Array.from({ length: 20 }, (_, index) => ({ id: String(index), label: `Field ${index}`, help }));

@@ -882,7 +882,7 @@ const EDIT_FIELD_LABELS: Record<EditMenuAction, string> = {
   "tools.allow": "Allowed tools",
   "tools.block": "Blocked tools",
   color: "Color",
-  icon: "[labs] Icon",
+  icon: "[lab] Icon",
   systemPrompt: "System prompt",
   "Save scope": "Save scope",
   Source: "Source (read-only)",
@@ -908,7 +908,7 @@ const EDIT_FIELD_HELP: Record<EditMenuAction, string> = {
   "tools.block":
     "Pick session tools to block. Blocked tools take precedence when the policy uses this list.",
   color: "Thread widget color with live preview.",
-  icon: "Paste a single Nerd Font glyph from nerdfonts.com/cheat-sheet (not its name or codepoint).\nLeave blank to remove. Display requires [labs] Nerd Font icons in settings and a Nerd Font in your terminal.",
+  icon: "Paste a single Nerd Font glyph from nerdfonts.com/cheat-sheet (not its name or codepoint).\nLeave blank to remove. Display requires [lab] Nerd Font icons in settings and a Nerd Font in your terminal.",
   systemPrompt: "Edit the Markdown prompt body in a multiline dialog.",
   "Save scope": "Project definitions override global definitions with the same name.",
   Source: "Read-only source. Bundled definitions are copied, never overwritten.",

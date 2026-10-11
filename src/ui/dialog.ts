@@ -31,6 +31,8 @@ export interface DialogRow {
   label: string;
   /** Trusted formatter receives sanitized text; generated ANSI styling is kept when clipping. */
   renderLabel?: (label: string, theme: Theme) => string;
+  /** Trusted formatter for a fixed three-cell middle column, styled at render time. */
+  renderIndicators?: (theme: Theme) => string;
   value?: string;
   valueColor?: Parameters<Theme["fg"]>[0];
   help?: string;
@@ -178,7 +180,7 @@ export function dialogEditor(
   );
 }
 
-/** Bounded, two-column menu shared by settings and agent definitions. */
+/** Bounded menu with an optional indicator column, shared by settings and agent definitions. */
 export class DialogMenu {
   private selected = 0;
   private viewport = 1;
@@ -242,11 +244,18 @@ export class DialogMenu {
         this.rows.length - this.viewport,
       ),
     );
-    const labelWidth = Math.min(28, Math.max(8, Math.floor(inner * 0.35)));
+    const hasIndicators = this.rows.some((row) => row.renderIndicators);
+    const indicatorWidth = 3;
+    const labelWidth = Math.min(
+      28,
+      Math.max(8, Math.floor(inner * 0.35)),
+      // Reserve prefix, separators, indicators and at least one value cell at narrow widths.
+      hasIndicators ? Math.max(0, inner - 2 - 6 - indicatorWidth - 1) : Infinity,
+    );
     const body = [
       this.theme.fg(
         "dim",
-        ` ${this.rows.length ? this.selected + 1 : 0}/${this.rows.length} · Field / Value`,
+        ` ${this.rows.length ? this.selected + 1 : 0}/${this.rows.length} · Field / ${hasIndicators ? "Saved / " : ""}Value`,
       ),
       ...this.rows.slice(start, start + this.viewport).map((row, i) => {
         const selected = start + i === this.selected;
@@ -259,10 +268,13 @@ export class DialogMenu {
           true,
         );
         const padding = " ".repeat(Math.max(0, labelWidth - visibleWidth(label)));
+        const indicators = truncateToWidth(row.renderIndicators?.(this.theme) ?? "", indicatorWidth, "", true);
+        const indicatorPadding = " ".repeat(Math.max(0, indicatorWidth - visibleWidth(indicators)));
         const value = dialogText(row.value ?? "");
         return color(`${selected ? "›" : " "} `)
           + (row.renderLabel ? label : color(label))
           + color(`${padding} │ `)
+          + (hasIndicators ? indicators + color(`${indicatorPadding} │ `) : "")
           + (row.valueColor ? this.theme.fg(row.valueColor, value) : color(value));
       }),
       "",

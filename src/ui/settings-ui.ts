@@ -35,7 +35,7 @@ const LOADER_OPTIONS = LOADER_STYLES.map((id) => {
     id,
     label: loader.label,
     value: `${loader.frames.join(" ")} · ${Object.values(loader.states).join(" ")}`,
-    help: `Each row: all starting/running frames · completed, paused, failed, stopped.\nStarting/running: ${loader.frames.join(" ")}\nCompleted: ${loader.states.completed} · Paused: ${loader.states.paused}\nFailed: ${loader.states.failed} · Stopped: ${loader.states.stopped}\n${loader.requiresNerdFont ? "Requires [labs] Nerd Font icons On." : id === "braille" ? "Standard Unicode Braille; no Nerd Font needed." : "ASCII only; no special font needed."} The loader appears before the role icon when enabled.`,
+    help: `Each row: all starting/running frames · completed, paused, failed, stopped.\nStarting/running: ${loader.frames.join(" ")}\nCompleted: ${loader.states.completed} · Paused: ${loader.states.paused}\nFailed: ${loader.states.failed} · Stopped: ${loader.states.stopped}\n${loader.requiresNerdFont ? "Requires [lab] Nerd Font icons On." : id === "braille" ? "Standard Unicode Braille; no Nerd Font needed." : "ASCII only; no special font needed."} The loader appears before the role icon when enabled.`,
   };
 });
 
@@ -160,9 +160,9 @@ function withProvenance(row: DialogRow, keys: (keyof ManagerSettings)[], layers:
     layers.project[key] !== (layers.global[key] ?? DEFAULT_MANAGER_SETTINGS[key]));
   return {
     ...row,
-    renderLabel: (label, theme) =>
-      (globalChanged ? theme.fg("accent", "●") + " " : "") +
-      (projectChanged ? theme.fg("warning", "●") + " " : "") + label.replace(/^\[labs\] /, ""),
+    renderIndicators: (theme) =>
+      (globalChanged ? theme.fg("accent", "●") : " ") + " " +
+      (projectChanged ? theme.fg("warning", "●") : " "),
     help: `${row.label}\n${row.help ?? ""}`,
   };
 }
@@ -177,7 +177,7 @@ function provenanceLegend(theme: Theme): string {
 async function configureFooterDisplay(ctx: ExtensionCommandContext, draft: ManagerSettings, layers: SettingsLayers): Promise<void> {
   let selectedId: string | undefined;
   while (true) {
-    const action = await dialogMenu(ctx, "[labs] Footer display", ([
+    const action = await dialogMenu(ctx, "[lab] Footer display", ([
       {
         id: "location",
         label: "Location",
@@ -194,7 +194,7 @@ async function configureFooterDisplay(ctx: ExtensionCommandContext, draft: Manag
         id: "icon",
         label: "Icon",
         value: `${costIconGlyph(draft.costIcon, draft.nerdFontIcons)} ${COST_ICON_LABELS[draft.costIcon]}`,
-        help: `Choose a money-related ${draft.nerdFontIcons ? "Nerd Font" : "emoji"} icon. The family follows [labs] Nerd Font icons.`,
+        help: `Choose a money-related ${draft.nerdFontIcons ? "Nerd Font" : "emoji"} icon. The family follows [lab] Nerd Font icons.`,
       },
       { id: "back", label: "Back", help: "Return to settings. Save and apply there to commit these changes." },
     ] as DialogRow[]).map((row) => {
@@ -321,31 +321,31 @@ async function configureAgentsDialog(
         },
         {
           id: "costDisplay",
-          label: "[labs] Footer display",
+          label: "[lab] Footer display",
           value: COST_DISPLAY_OPTIONS.find((mode) => mode.id === draft.costDisplay)!.label,
           help: "Configure footer location, displayed cost, and money icon in a submenu. Save and apply to update immediately.",
         },
         {
           id: "nerdFontIcons",
-          label: "[labs] Nerd Font icons",
+          label: "[lab] Nerd Font icons",
           value: draft.nerdFontIcons ? "On" : "Off",
           help: "Experimental: display each agent type’s optional Nerd Font icon and unlock Nerd Font loader palettes.\nRequires a Nerd Font configured in your terminal; otherwise glyphs may appear as boxes.\nOff by default. Braille and ASCII loaders work with this Off. Save and apply to update immediately.",
         },
         {
           id: "loaderStyle",
-          label: "[labs] Loader style",
+          label: "[lab] Loader style",
           value: AGENT_LOADERS[effectiveLoaderStyle(draft.loaderStyle, draft.nerdFontIcons)].label,
           help: "Preview every animation frame and settled state.\nNerd Fonts Off: Braille (standard Unicode), ASCII, ASCII Star and ASCII Pulse. On: all palettes, including Circle and Hourglass.\nNerd-only saved styles fall back to ASCII while Nerd Fonts are off. Save and apply to update immediately.",
         },
         {
           id: "subagentExtensions",
-          label: "[labs] Enable subagent extensions",
+          label: "[lab] Enable subagent extensions",
           value: draft.subagentExtensions ? "On" : "Off",
           help: "Experimental: reload configured user/trusted-project extension hooks in separate subagent sessions (not CLI-only or inline extensions). Bugs and unintended consequences may occur if hooks assume main-session state.\nRead limitations: https://github.com/championswimmer/pi-subagent-manager/blob/main/docs/subagent-extension-limitations.md\nOff by default. Save and apply affects newly opened sessions, not already-open agents.",
         },
         {
           id: "finalRecap",
-          label: "[labs] Final Recap",
+          label: "[lab] Final Recap",
           value: draft.finalRecap ? "On" : "Off",
           help: "Experimental: when detached agents finish or fail and the main agent is idle, automatically ask the main agent to summarize their results.\nEnabling this may cause extra model turns and uses more tokens and context.\nOff by default. Subagent Mode Off suppresses automatic summaries.",
         },
@@ -444,7 +444,7 @@ async function configureAgentsDialog(
         const styles = availableLoaderStyles(draft.nerdFontIcons);
         const style = await dialogMenu(
           ctx,
-          "[labs] Loader style",
+          "[lab] Loader style",
           LOADER_OPTIONS.filter((option) => styles.includes(option.id)),
           { selectedId: effectiveLoaderStyle(draft.loaderStyle, draft.nerdFontIcons) },
         );

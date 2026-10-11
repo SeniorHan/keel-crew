@@ -115,17 +115,17 @@ async function run(
   };
 }
 
-test("[labs] Loader style previews all families and states together, and saves every selection", async (t) => {
+test("[lab] Loader style previews all families and states together, and saves every selection", async (t) => {
   for (const loaderStyle of LOADER_STYLES) {
     const result = await run(t, ["loaderStyle", loaderStyle, "save"], {
       settings: { ...DEFAULT_MANAGER_SETTINGS, nerdFontIcons: true },
     });
     const chooser = result.menus[1]!;
-    assert.equal(result.menus[0]!.rows.find((row) => row.id === "loaderStyle")!.label, "[labs] Loader style");
+    assert.equal(result.menus[0]!.rows.find((row) => row.id === "loaderStyle")!.label, "[lab] Loader style");
     assert.equal(result.value(0, "loaderStyle"), "Circle");
-    assert.equal(chooser.title, "[labs] Loader style");
+    assert.equal(chooser.title, "[lab] Loader style");
     assert.deepEqual(chooser.rows.map((row) => row.id), [...LOADER_STYLES]);
-    const preview = result.renders.find((lines) => lines[0]?.includes("[labs] Loader style"))!;
+    const preview = result.renders.find((lines) => lines[0]?.includes("[lab] Loader style"))!;
     assert.ok(preview, "loader picker rendered");
     const text = stripTerminalSequences(preview.join("\n"));
     for (const row of chooser.rows) {
@@ -146,7 +146,7 @@ test("[labs] Loader style previews all families and states together, and saves e
   }
 });
 
-test("[labs] Loader style cancel, restore-defaults and narrow layouts preserve draft semantics", async (t) => {
+test("[lab] Loader style cancel, restore-defaults and narrow layouts preserve draft semantics", async (t) => {
   const cancelled = await run(t, ["loaderStyle", "braille", "cancel"]);
   assert.equal(cancelled.applied, 0);
   assert.equal(existsSync(cancelled.userFile), false);
@@ -169,10 +169,29 @@ test("[labs] Loader style cancel, restore-defaults and narrow layouts preserve d
   }
 });
 
-test("[labs] Nerd Font setting toggles, persists, and cancels without saving", async (t) => {
+test("lab labels remain in the name column with saved dots between name and value", async (t) => {
+  const result = await run(t, ["nerdFontIcons", "cancel"], {
+    trusted: true, width: 100,
+    global: { nerdFontIcons: true },
+    project: { nerdFontIcons: false },
+  });
+  for (const id of ["costDisplay", "nerdFontIcons", "loaderStyle", "subagentExtensions", "finalRecap"]) {
+    const row = result.menus[0]!.rows.find((row) => row.id === id)!;
+    assert.match(row.label, /^\[lab\] /);
+    assert.equal(row.renderLabel, undefined, "lab label is not stripped by a formatter");
+  }
+  const line = result.renders.at(-1)!.map(stripTerminalSequences)
+    .find((line) => line.includes("› [lab] Nerd Font icons"))!;
+  assert.ok(line, "selected lab setting is rendered with its label");
+  assert.match(line, /› \[lab\] Nerd Font icons\s+│ ● ● │ On/);
+  assert.equal(savedIndicators(result.menus[1]!, "nerdFontIcons"), "<accent>●</accent> <warning>●</warning>",
+    "unsaved toggle leaves the persisted indicator pair unchanged");
+});
+
+test("[lab] Nerd Font setting toggles, persists, and cancels without saving", async (t) => {
   const enabled = await run(t, ["nerdFontIcons", "save"]);
   const field = enabled.menus[0]!.rows.find((row) => row.id === "nerdFontIcons")!;
-  assert.equal(field.label, "[labs] Nerd Font icons");
+  assert.equal(field.label, "[lab] Nerd Font icons");
   assert.equal(field.value, "Off");
   assert.equal(enabled.loaded.settings.nerdFontIcons, true);
   assert.equal(enabled.applied, 1);
@@ -472,7 +491,8 @@ test("untrusted projects ignore project values and cannot switch scope or alter 
   assert.deepEqual(JSON.parse(readFileSync(result.userFile, "utf8")), { maxLevels: 6 });
   assert.equal(result.loaded.settings.maxLevels, 6);
   const row = result.menus[0]!.rows.find((row) => row.id === "maxLevels")!;
-  assert.equal(row.renderLabel!(row.label, theme), "● Maximum levels");
+  assert.equal(row.renderIndicators!(theme), "●  ");
+  assert.equal(row.label, "Maximum levels");
 });
 
 test("Save rejects concurrent Global or Project changes instead of persisting stale draft overrides", async (t) => {
@@ -561,7 +581,7 @@ test("invalid files warn on opening and reloading and contribute no values or do
   assert.match(projectWarnings[0]!, /Invalid JSON/);
   assert.ok(result.notificationTypes.every((type) => type === "warning"));
   assert.equal(result.value(0, "maxLevels"), String(DEFAULT_MANAGER_SETTINGS.maxLevels));
-  assert.equal(coloredLabel(result.menus[0]!, "maxLevels"), "Maximum levels");
+  assert.equal(savedIndicators(result.menus[0]!, "maxLevels"), "   ");
   assert.equal(result.value(0, "scope"), "Current Project", "invalid project file can still be explicitly cleared");
   assert.equal(result.value(2, "scope"), "Global");
   assert.equal(existsSync(result.projectFile), false);
@@ -600,9 +620,9 @@ test("settings values are read from layers rather than stale runtime settings", 
 const provenanceTheme = {
   fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
 } as Theme;
-const coloredLabel = (menu: Menu, id: string) => {
+const savedIndicators = (menu: Menu, id: string) => {
   const row = menu.rows.find((row) => row.id === id)!;
-  return row.renderLabel?.(row.label, provenanceTheme) ?? row.label;
+  return row.renderIndicators?.(provenanceTheme) ?? "";
 };
 
 test("saved provenance distinguishes both layers, equal values, and projects reverting a default", async (t) => {
@@ -613,14 +633,14 @@ test("saved provenance distinguishes both layers, equal values, and projects rev
       project: { maxLevels: DEFAULT_MANAGER_SETTINGS.maxLevels, widgetMode: "minimal", maxConcurrent: 8 },
     });
     assert.equal(result.value(0, "maxLevels"), String(DEFAULT_MANAGER_SETTINGS.maxLevels));
-    assert.equal(coloredLabel(result.menus[0]!, "maxLevels"),
-      "<accent>●</accent> <warning>●</warning> Maximum levels");
-    assert.equal(coloredLabel(result.menus[0]!, "widgetMode"), "<accent>●</accent> Status Widget",
+    assert.equal(savedIndicators(result.menus[0]!, "maxLevels"),
+      "<accent>●</accent> <warning>●</warning>");
+    assert.equal(savedIndicators(result.menus[0]!, "widgetMode"), "<accent>●</accent>  ",
       "project value equal to global does not count as changed");
-    assert.equal(coloredLabel(result.menus[0]!, "maxConcurrent"), "<warning>●</warning> Concurrent agents",
+    assert.equal(savedIndicators(result.menus[0]!, "maxConcurrent"), "  <warning>●</warning>",
       "explicit global value equal to default does not count as changed");
-    assert.equal(coloredLabel(result.menus[0]!, "modelSelection"), "Model Picking");
-    assert.equal(coloredLabel(result.menus[1]!, "maxLevels"), coloredLabel(result.menus[0]!, "maxLevels"),
+    assert.equal(savedIndicators(result.menus[0]!, "modelSelection"), "   ");
+    assert.equal(savedIndicators(result.menus[1]!, "maxLevels"), savedIndicators(result.menus[0]!, "maxLevels"),
       "unsaved edits do not change saved provenance");
     assert.doesNotMatch(result.menus[0]!.rows.find((row) => row.id === "maxLevels")!.help!, /Dots|Saved:/);
     const text = stripTerminalSequences(result.renders[0]!.join("\n"));
@@ -660,13 +680,14 @@ test("Footer aggregate provenance covers all three settings while the submenu ma
     global: { costDisplay: "pi-status", costValue: "total" },
     project: { costDisplay: "pi-status", costIcon: "wallet" },
   });
-  assert.equal(coloredLabel(result.menus[0]!, "costDisplay"),
-    "<accent>●</accent> <warning>●</warning> Footer display");
-  assert.equal(coloredLabel(result.menus[1]!, "location"), "<accent>●</accent> Location");
-  assert.equal(coloredLabel(result.menus[1]!, "value"), "<accent>●</accent> Display value");
-  assert.equal(coloredLabel(result.menus[1]!, "icon"), "<warning>●</warning> Icon");
-  assert.equal(coloredLabel(result.menus[1]!, "back"), "Back");
-  assert.equal(coloredLabel(result.menus[3]!, "icon"), "<warning>●</warning> Icon",
+  assert.equal(savedIndicators(result.menus[0]!, "costDisplay"),
+    "<accent>●</accent> <warning>●</warning>");
+  assert.equal(result.menus[0]!.rows.find((row) => row.id === "costDisplay")!.label, "[lab] Footer display");
+  assert.equal(savedIndicators(result.menus[1]!, "location"), "<accent>●</accent>  ");
+  assert.equal(savedIndicators(result.menus[1]!, "value"), "<accent>●</accent>  ");
+  assert.equal(savedIndicators(result.menus[1]!, "icon"), "  <warning>●</warning>");
+  assert.equal(savedIndicators(result.menus[1]!, "back"), "");
+  assert.equal(savedIndicators(result.menus[3]!, "icon"), "  <warning>●</warning>",
     "changing the draft icon keeps the persisted dot");
   assert.equal(result.applied, 0);
   assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), { costDisplay: "pi-status", costIcon: "wallet" });
@@ -835,10 +856,10 @@ for (const width of [32, 80]) {
   });
 }
 
-test("[labs] Final Recap toggles and saves to both scopes", async (t) => {
+test("[lab] Final Recap toggles and saves to both scopes", async (t) => {
   const enabled = await run(t, ["finalRecap", "save"]);
   const field = enabled.menus[0]!.rows.find((row) => row.id === "finalRecap")!;
-  assert.equal(field.label, "[labs] Final Recap");
+  assert.equal(field.label, "[lab] Final Recap");
   assert.equal(field.value, "Off");
   assert.equal(enabled.value(1, "finalRecap"), "On");
   assert.match(enabled.menus[1]!.title, /unsaved/);
@@ -856,7 +877,7 @@ test("[labs] Final Recap toggles and saves to both scopes", async (t) => {
   assert.deepEqual(JSON.parse(readFileSync(disabled.userFile, "utf8")), { finalRecap: true });
 });
 
-test("[labs] Final Recap cancellation, toggle reversal and restore-defaults keep it opt-in", async (t) => {
+test("[lab] Final Recap cancellation, toggle reversal and restore-defaults keep it opt-in", async (t) => {
   const cancelled = await run(t, ["finalRecap", "cancel"]);
   assert.equal(cancelled.applied, 0);
   assert.equal(existsSync(cancelled.userFile), false);
@@ -872,7 +893,7 @@ test("[labs] Final Recap cancellation, toggle reversal and restore-defaults keep
 });
 
 for (const width of [32, 80]) {
-  test(`[labs] Final Recap renders a bordered settings frame at width ${width}`, async (t) => {
+  test(`[lab] Final Recap renders a bordered settings frame at width ${width}`, async (t) => {
     const result = await run(t, ["finalRecap", "cancel"], { width });
     assert.ok(result.renders.every((lines) => lines[0]!.includes("Agents settings")));
     assert.equal(result.value(1, "finalRecap"), "On");
@@ -883,8 +904,8 @@ for (const width of [32, 80]) {
 test("Footer display opens a submenu and saves all three locations with integration IDs", async (t) => {
   for (const mode of ["pi-footer-event", "pi-footer-status", "pi-status"] as const) {
     const result = await run(t, ["costDisplay", "location", mode, "back", "save"]);
-    assert.equal(result.menus[0]!.rows.find((row) => row.id === "costDisplay")!.label, "[labs] Footer display");
-    assert.equal(result.menus[1]!.title, "[labs] Footer display");
+    assert.equal(result.menus[0]!.rows.find((row) => row.id === "costDisplay")!.label, "[lab] Footer display");
+    assert.equal(result.menus[1]!.title, "[lab] Footer display");
     assert.deepEqual(result.menus[1]!.rows.map((row) => row.id), ["location", "value", "icon", "back"]);
     const locations = result.menus[2]!.rows;
     assert.deepEqual(locations.map((row) => row.id), ["pi-status", "pi-footer-status", "pi-footer-event"]);
@@ -945,10 +966,10 @@ test("Footer submenu and pickers fit narrow terminals and save to project scope"
   }
 });
 
-test("[labs] Enable subagent extensions warns, toggles, saves and restores default off", async (t) => {
+test("[lab] Enable subagent extensions warns, toggles, saves and restores default off", async (t) => {
   const enabled = await run(t, ["subagentExtensions", "save"]);
   const row = enabled.menus[0]!.rows.find((row) => row.id === "subagentExtensions")!;
-  assert.equal(row.label, "[labs] Enable subagent extensions");
+  assert.equal(row.label, "[lab] Enable subagent extensions");
   assert.equal(row.value, "Off");
   assert.match(row.help!, /Experimental/);
   assert.match(row.help!, /Bugs and unintended consequences/);
@@ -990,7 +1011,7 @@ test("Nerd Fonts off filters loader previews, uses ASCII fallback, and saves non
     assert.equal(result.menus[1]!.selectedId, "ascii");
     for (const row of result.menus[1]!.rows) {
       assert.doesNotMatch(row.value!, /\p{Co}/u);
-      assert.doesNotMatch(row.help!, /Requires \[labs\] Nerd Font icons On/);
+      assert.doesNotMatch(row.help!, /Requires \[lab\] Nerd Font icons On/);
     }
     assert.equal(result.loaded.settings.loaderStyle, loaderStyle);
     assert.equal(result.loaded.settings.nerdFontIcons, false);
