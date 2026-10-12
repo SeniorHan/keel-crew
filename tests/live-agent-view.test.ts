@@ -461,7 +461,118 @@ test("streaming, inherited, custom and visible thinking text use Markdown too", 
   }
 });
 
-test("tool calls pair with results using native previews while messages stay complete", async () => {
+test("custom extension messages fold and expand in root and subagent transcripts", async () => {
+  const source = Array.from({ length: 6 }, (_, index) => `- **update ${index}**`).join("\n");
+  for (const path of ["/root", "/root/a"]) {
+    const custom = {
+      role: "custom",
+      customType: "other-extension",
+      content:
+        path === "/root"
+          ? source
+          : [
+              { type: "text", text: source },
+              { type: "image", data: "not-rendered", mimeType: "image/png" },
+            ],
+      display: true,
+      timestamp: 0,
+    } as Extract<AgentMessage, { role: "custom" }>;
+    const inherited = {
+      ...custom,
+      content: "**inherited custom**",
+    } as AgentMessage;
+    const initial = snapshot({
+      thread: {
+        ...snapshot().thread!,
+        path,
+        parent: path === "/root" ? null : "/root",
+      },
+      messages: path === "/root" ? [custom] : [inherited, custom],
+      inheritedCount: path === "/root" ? 0 : 1,
+    });
+    const live = launch(initial, 40, undefined, { path });
+    await tick();
+    try {
+      let raw = live.view.render(100).join("\n");
+      assert.ok(raw.includes(getMarkdownTheme().bold("update 0")));
+      let content = stripTerminalSequences(raw);
+      for (let index = 0; index < 3; index++) assert.match(content, new RegExp(`update ${index}`));
+      assert.doesNotMatch(content, /update [345]|inherited custom|Image/);
+      assert.match(content, /Ctrl\+O to expand/);
+
+      live.view.handleInput("\x0f"); // Compact hides the body, retaining its heading.
+      content = stripTerminalSequences(live.view.render(100).join("\n"));
+      assert.match(content, / custom/);
+      assert.doesNotMatch(content, /update \d|Image/);
+
+      live.view.handleInput("\x0f"); // Full restores all Markdown and safe image placeholders.
+      raw = live.view.render(100).join("\n");
+      content = stripTerminalSequences(raw);
+      for (let index = 0; index < 6; index++) assert.match(content, new RegExp(`update ${index}`));
+      assert.ok(raw.includes(getMarkdownTheme().bold("update 5")));
+      assert.doesNotMatch(content, /Ctrl\+O to expand|inherited custom/);
+      if (path !== "/root") {
+        assert.match(content, /Image — text-only observer/);
+        live.view.handleInput("\t");
+        live.view.handleInput("c");
+        assert.match(stripTerminalSequences(live.view.render(100).join("\n")), /inherited custom/);
+      }
+
+      live.view.handleInput("\x0f"); // Preview again; cached full output must not leak through.
+      live.view.invalidate();
+      content = stripTerminalSequences(live.view.render(100).join("\n"));
+      assert.match(content, /update 2/);
+      assert.doesNotMatch(content, /update [345]|Image/);
+      assert.deepEqual(
+        custom.content,
+        path === "/root"
+          ? source
+          : [
+              { type: "text", text: source },
+              { type: "image", data: "not-rendered", mimeType: "image/png" },
+            ],
+      );
+    } finally {
+      live.view.dispose();
+    }
+  }
+});
+
+test("custom previews count rendered Markdown rows and remain bounded on resize", async () => {
+  const source = `**start** ${"wrapped text ".repeat(100)}tail`;
+  const live = launch(
+    snapshot({
+      messages: [
+        {
+          role: "custom",
+          customType: "other-extension",
+          content: source,
+          display: true,
+          timestamp: 0,
+        } as AgentMessage,
+      ],
+    }),
+    30,
+  );
+  await tick();
+  try {
+    for (const width of [100, 35, 10]) {
+      const lines = live.view.render(width);
+      const heading = lines.findIndex((line) => stripTerminalSequences(line).trim() === "custom");
+      const expected = new Markdown(source, 0, 0, getMarkdownTheme()).render(width - 2).slice(0, 3);
+      assert.deepEqual(
+        lines.slice(heading + 1, heading + 4).map((line) => line.trimEnd()),
+        expected.map((line) => ` ${line}`.trimEnd()),
+      );
+      assert.doesNotMatch(stripTerminalSequences(lines.join("\n")), /tail/);
+      for (const line of lines) assert.equal(visibleWidth(line), width);
+    }
+  } finally {
+    live.view.dispose();
+  }
+});
+
+test("tool calls pair with native previews while user and assistant messages stay complete", async () => {
   const fullText = (prefix: string) =>
     Array.from({ length: 6 }, (_, index) => `${prefix} ${index}`).join("\n");
   const toolResult = {
@@ -527,8 +638,10 @@ test("tool calls pair with results using native previews while messages stay com
   );
   await tick();
   const content = stripTerminalSequences(live.view.render(120).join("\n"));
-  for (const prefix of ["steer", "agent", "update", "stream"])
+  for (const prefix of ["steer", "agent", "stream"])
     for (let index = 0; index < 6; index++) assert.ok(content.includes(`${prefix} ${index}`));
+  for (let index = 0; index < 3; index++) assert.ok(content.includes(`update ${index}`));
+  assert.doesNotMatch(content, /update [345]/);
   assert.match(content, /read file\.ts:1-100/);
   assert.doesNotMatch(content, /Tool result:/);
   assert.equal(content.match(/read file\.ts:1-100/g)?.length, 1);
@@ -541,10 +654,12 @@ test("tool calls pair with results using native previews while messages stay com
   live.view.handleInput("\x0f"); // Ctrl+O cycles views even while the steer input is focused.
   assert.equal(live.viewport.detail, "compact");
   assert.doesNotMatch(stripTerminalSequences(live.view.render(120).join("\n")), /output 0/);
+  assert.doesNotMatch(stripTerminalSequences(live.view.render(120).join("\n")), /update \d/);
   live.view.handleInput("\x0f"); // Full expands native tool results.
   const expanded = stripTerminalSequences(live.view.render(120).join("\n"));
   for (let index = 0; index < 5; index++) assert.ok(expanded.includes(`output ${index}`));
   assert.match(expanded, /running output 0/);
+  for (let index = 0; index < 6; index++) assert.ok(expanded.includes(`update ${index}`));
   live.view.handleInput("\x0f");
   assert.doesNotMatch(stripTerminalSequences(live.view.render(120).join("\n")), /running output 0/);
   live.view.dispose();
@@ -741,6 +856,13 @@ test("long steer and agent messages are not subject to the old tool output size 
       }),
     );
     await tick();
+    if (role === "custom") {
+      const preview = live.view.render(120).join("\n");
+      assert.doesNotMatch(preview, /complete message tail/);
+      assert.match(preview, /Ctrl\+O to expand/);
+      live.view.handleInput("\x0f");
+      live.view.handleInput("\x0f");
+    }
     const rendered = live.view.render(120).join("\n");
     assert.match(rendered, /complete message tail/);
     assert.doesNotMatch(rendered, /Viewer truncated/);
