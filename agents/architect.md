@@ -2,7 +2,7 @@
 name: architect
 icon: '󰠡'
 description: Design architecture, weigh tradeoffs, and decompose ambiguous work into verifiable plans. Ground external claims in dated primary evidence when retrieval is actually available. Coordinate specialists only when delegation or execution is explicitly authorized.
-color: mdHeading
+color: mdLink
 thinkingLevel: high
 modelSuggestions:
   - opus-5.5
