@@ -30,6 +30,7 @@ import { editAgentTypes } from "./ui.ts";
 import type { ToolEditorOptions } from "./tool-picker.ts";
 import { AGENT_LOADERS, availableLoaderStyles, effectiveLoaderStyle } from "./agent-loader.ts";
 import { costIconGlyph } from "./cost-footer.ts";
+import { CHECKLIST_REQUIREMENTS, type ChecklistStatus } from "../orch/checklist-integration.ts";
 
 const LOADER_OPTIONS = LOADER_STYLES.map((id) => {
   const loader = AGENT_LOADERS[id];
@@ -254,6 +255,8 @@ export async function configureAgents(
     settings: ManagerSettings;
     agentDir: string;
     getAllTools?: ToolEditorOptions["getAllTools"];
+    /** Live pi-checklist eligibility; absent means unavailable (fail closed). */
+    checklistStatus?: () => ChecklistStatus;
     apply(): void;
   },
 ): Promise<void> {
@@ -263,6 +266,25 @@ export async function configureAgents(
   );
 }
 
+/** Always shown; "disabled" (muted, guarded) unless pi-checklist prerequisites currently hold. */
+function checklistRow(enabled: boolean, status: ChecklistStatus): DialogRow {
+  const requirements = `${CHECKLIST_REQUIREMENTS}\nWhen On and eligible, adds prompt guidance to tag which agent works on each checklist task via meta.agent; in Orchestration mode /root must use the checklist. Off by default.`;
+  if (status.eligible)
+    return {
+      id: "checklistIntegration",
+      label: "[lab] Checklist integration",
+      value: enabled ? "On" : "Off",
+      help: `Experimental: integrate with pi-checklist.\n${requirements}\nAvailable now: pi-checklist ≥3.0.0 is loaded with task meta enabled.`,
+    };
+  return {
+    id: "checklistIntegration",
+    label: "[lab] Checklist integration",
+    value: enabled ? "On · inactive (unavailable)" : "Off · unavailable",
+    valueColor: "muted",
+    help: `Experimental: integrate with pi-checklist.\nUnavailable: ${status.reason ?? "requirements not met"}.\n${requirements}\n${enabled ? "Saved On but inactive until requirements are met; Enter turns it Off." : "Cannot be turned On until requirements are met."}`,
+  };
+}
+
 async function configureAgentsDialog(
   ctx: ExtensionCommandContext,
   options: {
@@ -270,9 +292,18 @@ async function configureAgentsDialog(
     settings: ManagerSettings;
     agentDir: string;
     getAllTools?: ToolEditorOptions["getAllTools"];
+    /** Live pi-checklist eligibility; absent means unavailable (fail closed). */
+    checklistStatus?: () => ChecklistStatus;
     apply(): void;
   },
 ): Promise<void> {
+  const checklistStatus = (): ChecklistStatus => {
+    try {
+      return options.checklistStatus?.() ?? { eligible: false, reason: "pi-checklist status is unavailable" };
+    } catch (error) {
+      return { eligible: false, reason: `could not verify pi-checklist: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  };
   const readLayers = () => loadManagerSettingsLayers({
     cwd: ctx.cwd,
     agentDir: options.agentDir,
@@ -345,6 +376,7 @@ async function configureAgentsDialog(
           value: draft.subagentExtensions ? "On" : "Off",
           help: "Experimental: reload configured user/trusted-project extension hooks in separate subagent sessions (not CLI-only or inline extensions). Bugs and unintended consequences may occur if hooks assume main-session state.\nRead limitations: https://github.com/championswimmer/pi-subagent-manager/blob/main/docs/subagent-extension-limitations.md\nOff by default. Save and apply affects newly opened sessions, not already-open agents.",
         },
+        checklistRow(draft.checklistIntegration, checklistStatus()),
         {
           id: "finalRecap",
           label: "[lab] Final Recap",
@@ -453,6 +485,12 @@ async function configureAgentsDialog(
         if (styles.includes(style as LoaderStyle)) draft.loaderStyle = style as LoaderStyle;
       } else if (action === "subagentExtensions") {
         draft.subagentExtensions = !draft.subagentExtensions;
+      } else if (action === "checklistIntegration") {
+        const status = checklistStatus();
+        // Turning Off is always allowed; turning On requires current eligibility.
+        if (!draft.checklistIntegration && !status.eligible)
+          ctx.ui.notify(`Checklist integration cannot be enabled: ${status.reason ?? "requirements not met"}. ${CHECKLIST_REQUIREMENTS}`, "warning");
+        else draft.checklistIntegration = !draft.checklistIntegration;
       } else if (action === "finalRecap") {
         draft.finalRecap = !draft.finalRecap;
       } else if (action === "scope") {
@@ -529,6 +567,11 @@ async function configureAgentsDialog(
         });
         options.store.reload();
       } else if (action === "save") {
+        if (draft.checklistIntegration && !baseline.checklistIntegration) {
+          const status = checklistStatus();
+          if (!status.eligible)
+            throw new Error(`Checklist integration cannot be enabled: ${status.reason ?? "requirements not met"}. Turn it Off or satisfy: ${CHECKLIST_REQUIREMENTS}`);
+        }
         const file = saveManagerOverrides({
           cwd: ctx.cwd,
           agentDir: options.agentDir,

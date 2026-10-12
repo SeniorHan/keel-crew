@@ -16,6 +16,7 @@ import { AgentNavigationEditor } from "./ui/agent-navigation-editor.ts";
 import { createDriverFactory } from "./orch/runtime.ts";
 import { createInheritedToolSource } from "./orch/inherited-tools.ts";
 import { subagentPrompt } from "./orch/prompt.ts";
+import { ChecklistMetaMirror, checklistStatus } from "./orch/checklist-integration.ts";
 import { agentTools } from "./orch/tools.ts";
 import { editAgentTypes, updateWidget } from "./ui/ui.ts";
 import { canOpenDialog, dialogMenu } from "./ui/dialog.ts";
@@ -74,6 +75,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
     refreshCostFooter(ctx);
     return loaded.diagnostics;
   };
+  const checklistMirror = new ChecklistMetaMirror(() => getAgentDir());
+  const currentChecklistStatus = (ctx: ExtensionContext) => checklistStatus(pi, checklistMirror, ctx);
   let generation = 0;
   let rootTurnEnded = false;
   const hiddenWidgetThreads = new Set<string>();
@@ -538,7 +541,11 @@ export default function piSubagent(pi: ExtensionAPI): void {
   });
   syncTools();
   pi.on("before_agent_start", async (event, ctx) => {
-    const prompt = subagentPrompt(limits);
+    // Re-verify on every turn: the Labs opt-in AND live checklist eligibility must both hold.
+    const prompt = subagentPrompt(
+      limits,
+      limits.checklistIntegration && limits.subagentMode !== "off" && currentChecklistStatus(ctx).eligible,
+    );
     if (!prompt) return;
     if (limits.subagentMode === "opportunistic" && event.prompt.startsWith(IMPORT_REQUEST_PREFIX)) {
       try {
@@ -564,6 +571,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
     // session_start already belongs to the replacement session: never append the old registry here.
     if (manager) await manager.shutdown();
     inheritedTools.reset();
+    // pi-checklist reseeds its own state on these same lifecycle events.
+    checklistMirror.reset(ctx);
     context = ctx;
     costLedger = new CostLedger();
     costLedger.restore(ctx.sessionManager.getEntries());
@@ -785,6 +794,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
           settings: limits,
           agentDir: getAgentDir(),
           getAllTools: () => pi.getAllTools(),
+          checklistStatus: () => currentChecklistStatus(ctx),
           apply: () => {
             const diagnostics = loadLimits(ctx);
             requireManager().setLimits(limits);
