@@ -337,10 +337,11 @@ export class LiveAgentView {
     ).render(Math.max(1, width));
   }
 
-  /** Tool/metadata previews are bounded by rendered rows, not just source newlines. */
-  private preview(content: unknown, width: number): string[] {
+  /** Collapsed content is bounded by rendered rows, not just source newlines. */
+  private preview(content: unknown, width: number, markdown = false): string[] {
     const values = Array.isArray(content) ? content : [content];
     const lines: string[] = [];
+    const more = this.theme.fg("dim", markdown ? "... (Ctrl+O to expand)" : "...");
     for (const value of values) {
       const block = object(value);
       const valueText =
@@ -351,14 +352,15 @@ export class LiveAgentView {
             : block?.type === "image"
               ? "[Image — text-only observer]"
               : json(value);
-      // Avoid wrapping megabytes of tool output just to display its first three rows.
+      // Bound source work before rendering a collapsed preview.
       const safe = text(valueText);
       const bounded = safe.slice(0, 32768);
-      for (const line of bounded.split("\n")) {
-        lines.push(...wrapTextWithAnsi(line, Math.max(1, width)));
-        if (lines.length > 3) return [...lines.slice(0, 3), this.theme.fg("dim", "...")];
+      const rendered = markdown ? this.markdown(bounded, width) : bounded.split("\n");
+      for (const line of rendered) {
+        lines.push(...(markdown ? [line] : wrapTextWithAnsi(line, Math.max(1, width))));
+        if (lines.length > 3) return [...lines.slice(0, 3), more];
       }
-      if (safe.length > bounded.length) return [...lines.slice(0, 3), this.theme.fg("dim", "...")];
+      if (safe.length > bounded.length) return [...lines.slice(0, 3), more];
     }
     return lines;
   }
@@ -392,6 +394,13 @@ export class LiveAgentView {
     return this.preview(json(block), width);
   }
 
+  /** Extension messages follow the tool detail cycle without running extension renderers. */
+  private customBlocks(content: unknown, width: number): string[] {
+    if (this.detail === "compact") return [];
+    if (this.detail === "full") return this.blocks(content, width);
+    return this.pad(this.preview(content, Math.max(1, width - 2), true));
+  }
+
   private message(message: AgentMessage, width: number): string[] {
     if (message.role === "toolResult") {
       const result = message as unknown as Record<string, unknown>;
@@ -416,7 +425,11 @@ export class LiveAgentView {
       : [];
     const lines = [
       ...this.pad([heading]),
-      ...(collapsed ? this.pad(this.preview(content, inner)) : this.blocks(content, width)),
+      ...(message.role === "custom"
+        ? this.customBlocks(content, width)
+        : collapsed
+          ? this.pad(this.preview(content, inner))
+          : this.blocks(content, width)),
       ...this.pad(errors),
       "",
     ];
