@@ -145,3 +145,27 @@ test("a missing bundled directory disables packaged defaults without dropping us
   assert.deepEqual(disabled.diagnostics, []);
   assert.deepEqual(disabled.list(), [custom]);
 });
+
+test("each bundled agent resolves to a distinct color in the dark and light themes", (t) => {
+  const themeDir = join(
+    process.cwd(),
+    "node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme",
+  );
+  const store = new ConfigStore(fixture(t));
+  for (const theme of ["dark", "light"]) {
+    const json = JSON.parse(readFileSync(join(themeDir, `${theme}.json`), "utf8")) as {
+      vars: Record<string, string>;
+      colors: Record<string, string>;
+    };
+    const resolved = new Map<string, string>();
+    for (const type of store.list()) {
+      assert.ok(type.color, `${type.name} sets a color`);
+      const token = json.colors[type.color];
+      assert.ok(token !== undefined, `${type.name}: ${type.color} is a theme color in ${theme}`);
+      const value = json.vars[token] ?? token;
+      const other = resolved.get(value);
+      assert.equal(other, undefined, `${type.name} and ${other} share ${value} in ${theme}`);
+      resolved.set(value, type.name);
+    }
+  }
+});

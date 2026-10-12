@@ -8,7 +8,7 @@ modelSuggestions:
   - muse-spark-1.3
   - sonnet-5.5
 thinkingLevel: high
-color: accent
+color: syntaxVariable
 tools:
   allow:
     - read
