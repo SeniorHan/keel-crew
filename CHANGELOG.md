@@ -4,6 +4,19 @@ Generated from version tags and merged GitHub pull requests. Do not edit this fi
 
 ## 0.x — Pre-1.0 releases
 
+### [v0.28.0](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.28.0) — Minor release (2026-10-12)
+
+<!-- Release notes generated using configuration in .github/release.yml at v0.28.0 -->
+
+#### What's Changed
+##### Merged pull requests
+* fix: give each bundled agent a distinct color by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/56
+* feat: add labs checklist integration for pi-checklist meta tags by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/57
+* fix: fold custom extension messages in live transcripts by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/58
+
+
+**Full Changelog**: https://github.com/championswimmer/pi-subagent-manager/compare/v0.27.0...v0.28.0
+
 ### [v0.27.0](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.27.0) — Minor release (2026-10-12)
 
 <!-- Release notes generated using configuration in .github/release.yml at v0.27.0 -->
