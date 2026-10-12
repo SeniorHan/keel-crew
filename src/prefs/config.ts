@@ -956,6 +956,28 @@ export class ConfigStore {
     return base ? structuredClone(base) : undefined;
   }
 
+  /** Loaded definitions in cascade order, including lower-precedence scopes. */
+  getLayers(name: string): AgentType[] {
+    const current = this.get(name); // Never expose layers of an invalid/blocked agent.
+    const layers = new Map<AgentType["source"], AgentType>();
+    for (const type of [
+      this.scopeBases.get("user")?.get(name),
+      this.scopeBases.get("project")?.get(name),
+      current,
+    ]) {
+      if (type) layers.set(type.source, type);
+    }
+    return structuredClone([...layers.values()]);
+  }
+
+  /** Saved sparse keys, including explicit clears and pins equal to the base. */
+  getSettingsOverride(name: string, scope: AgentScope): AgentSettingsOverride | undefined {
+    const layer = this.getLayers(name).find((type) => type.source === scope);
+    if (layer?.customization?.kind !== "override") return undefined;
+    const override = this.scopeOverrides.get(scope)?.get(name);
+    return override ? structuredClone(override) : undefined;
+  }
+
   /** Definition below a specific save scope; never includes that scope or higher ones. */
   private getScopeBase(name: string, scope: AgentScope): AgentType | undefined {
     const base = this.scopeBases.get(scope)?.get(name);

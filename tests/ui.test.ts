@@ -1700,3 +1700,63 @@ test("existing overlays are clean until edited and reverting a setting restores 
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
+
+test("sparse agent settings show saved scope dots and the full source cascade", async () => {
+  const fixture = await bundledFixture();
+  try {
+    const projectDir = join(fixture.root, ".pi", "agent", "subagent-manager", "agents");
+    await mkdir(projectDir, { recursive: true });
+    const globalPath = join(userAgentsDir(fixture.agentDir), "coder.yml");
+    const projectPath = join(projectDir, "coder.yaml");
+    await writeFile(globalPath, "thinkingLevel: high\nmodels: null\ntools:\n  allow: []\n");
+    await writeFile(projectPath, "thinkingLevel: low\ncolor: null\ntools:\n  block: []\n");
+    const store = new ConfigStore({ cwd: fixture.root, agentDir: fixture.agentDir, bundledDir: fixture.bundledDir, includeProject: true });
+    assert.deepEqual(store.getLayers("coder").map((layer) => layer.source), ["bundled", "user", "project"]);
+    assert.equal(store.get("coder").thinkingLevel, "low");
+    assert.deepEqual(store.get("coder").tools, { allow: [], block: [] });
+    const context = editorContext(fixture.root, ["coder", "thinkingLevel", "medium", "Cancel", undefined]);
+    const edits: DialogMenu[] = [];
+    let sourceHelp = "";
+    context.driver.onChild = (component) => {
+      if (!(component instanceof DialogMenu)) return false;
+      if (component.title === "Agent types") sourceHelp = component.rows.find((row) => row.id === "coder")!.help!;
+      if (component.title.startsWith("Edit coder")) edits.push(component);
+      return false;
+    };
+    await editAgentTypes(context.ctx, store);
+    assert.match(sourceHelp, /^bundled → user → project/);
+    for (const path of [join(fixture.bundledDir, "coder.md"), globalPath, projectPath]) assert.ok(sourceHelp.includes(path));
+    assert.equal(edits.length, 2);
+    for (const menu of edits) {
+      const dots = (id: string) => stripTerminalSequences(menu.rows.find((row) => row.id === id)!.renderIndicators!(darkTheme));
+      assert.equal(dots("thinkingLevel"), "● ●", "saved scopes remain visible through unsaved edits");
+      assert.equal(dots("models"), "●  ", "explicit global clear counts as an override");
+      assert.equal(dots("color"), "  ●", "explicit project clear counts as an override");
+      assert.equal(dots("tools.allow"), "●  ");
+      assert.equal(dots("tools.block"), "  ●");
+      assert.equal(dots("description"), "   ", "inherited fields have no dots");
+      assert.equal(dots("systemPrompt"), "   ");
+      assert.equal(menu.rows.find((row) => row.id === "Source")!.value, "bundled → user → project");
+    }
+    assert.ok(context.frames.some((frame) => frame.join("\n").includes("Current Project")));
+    const settings = store.getSettingsOverride("coder", "user")!;
+    settings.thinkingLevel = "off";
+    const layers = store.getLayers("coder");
+    layers[0]!.description = "mutated";
+    assert.equal(store.getSettingsOverride("coder", "user")!.thinkingLevel, "high");
+    assert.equal(store.getLayers("coder")[0]!.description, "Bundled coder");
+
+    const untrusted = new ConfigStore({ cwd: fixture.root, agentDir: fixture.agentDir, bundledDir: fixture.bundledDir, includeProject: false });
+    assert.deepEqual(untrusted.getLayers("coder").map((layer) => layer.source), ["bundled", "user"]);
+    assert.equal(untrusted.getSettingsOverride("coder", "project"), undefined);
+    assert.throws(() => untrusted.getLayers("missing"), /Unknown or invalid/);
+    await rm(projectPath);
+    await rm(globalPath);
+    store.reload();
+    assert.deepEqual(store.getLayers("coder").map((layer) => layer.source), ["bundled"]);
+    assert.equal(store.getSettingsOverride("coder", "user"), undefined);
+    assert.equal(store.getSettingsOverride("coder", "project"), undefined);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});

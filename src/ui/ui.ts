@@ -1037,6 +1037,44 @@ export async function editAgentTypes(
   );
 }
 
+function agentSourceHelp(store: ConfigStore, name: string): string {
+  const layers = store.getLayers(name);
+  const paths = layers.map((layer) =>
+    `${layer.source ?? "user"} · ${layer.filePath ?? ""}`,
+  ).join("\n");
+  return layers.length > 1
+    ? `${layers.map((layer) => layer.source).join(" → ")}\n${paths}`
+    : paths;
+}
+
+function agentSettingsIndicators(
+  store: ConfigStore,
+  name: string,
+  action: EditMenuAction,
+): (theme: Theme) => string {
+  const hasKey = (scope: "user" | "project") => {
+    const settings = store.getSettingsOverride(name, scope);
+    if (!settings) return false;
+    if (action === "tools.allow" || action === "tools.block") {
+      return Object.hasOwn(settings, "tools") &&
+        (settings.tools === null || Object.hasOwn(settings.tools ?? {}, action.split(".")[1]!));
+    }
+    return Object.hasOwn(settings, action);
+  };
+  const global = hasKey("user");
+  const project = hasKey("project");
+  return (theme) =>
+    (global ? theme.fg("accent", "●") : " ") + " " +
+    (project ? theme.fg("warning", "●") : " ");
+}
+
+function agentSettingsLegend(theme: Theme): string {
+  const global = theme.fg("accent", "●");
+  const project = theme.fg("warning", "●");
+  return theme.fg("muted", "Saved: ") +
+    `${global} Global · ${project} Current Project · ${global} ${project} Both`;
+}
+
 async function editAgentTypesDialog(
   ctx: ExtensionCommandContext,
   store: ConfigStore,
@@ -1058,7 +1096,7 @@ async function editAgentTypesDialog(
         renderLabel: (label: string, theme: Theme) =>
           agentTypeBadge(label, type.color, theme, type.icon, nerdFontIcons),
         value: type.description,
-        help: `${type.source ?? "user"} · ${type.filePath ?? ""}`,
+        help: agentSourceHelp(store, type.name),
       })),
     ]);
     if (selection === undefined) return;
@@ -1095,6 +1133,9 @@ async function editAgentTypesDialog(
           return {
             id: action,
             label: EDIT_FIELD_LABELS[action],
+            renderIndicators: editMode === "override" && original
+              ? agentSettingsIndicators(store, original.name, action)
+              : undefined,
             valueColor: action === "Save" && dirty ? ("warning" as const) : undefined,
             value:
               action === "Customization"
@@ -1102,9 +1143,9 @@ async function editAgentTypesDialog(
                 : action === "Save" && dirty
                   ? "(changes)"
                   : action === "Source"
-                    ? original?.customization
-                      ? `${original.customization.scope} ${original.customization.kind} over ${original.baseSource ?? "bundled"}`
-                      : (original?.source ?? "New draft")
+                    ? original
+                      ? store.getLayers(original.name).map((layer) => layer.source).join(" → ")
+                      : "New draft"
                     : action === "Save scope"
                       ? saveScope === "user"
                         ? "Global"
@@ -1116,10 +1157,9 @@ async function editAgentTypesDialog(
                           : "",
             help:
               action === "Source"
-                ? original?.customization
-                  ? `Settings file: ${original.customization.filePath}. Base prompt: ${original.baseFilePath ?? "(bundled)"}.`
-                  : (original?.filePath ??
-                    "Not saved yet. Bundled definitions are copied, never overwritten.")
+                ? original
+                  ? agentSourceHelp(store, original.name)
+                  : "Not saved yet. Bundled definitions are copied, never overwritten."
                 : EDIT_FIELD_HELP[action],
           };
         }),
@@ -1127,6 +1167,7 @@ async function editAgentTypesDialog(
           selectedId,
           saveId: "Save",
           footer: "↑↓/Tab fields · Enter edit · Ctrl+S save · Esc cancel",
+          renderLegend: editMode === "override" ? agentSettingsLegend : undefined,
         },
       );
       selectedId = field;
