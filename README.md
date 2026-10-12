@@ -88,7 +88,7 @@ Experimental features are marked **[labs]** in settings. Enable **[labs] Nerd Fo
 
 Enable **[labs] Enable subagent extensions** in `/agents settings` to reload configured user and trusted-project extension hooks in each subagent’s separate session. It is off by default and experimental: hooks that assume main-session state can cause bugs or unintended consequences. This is configured-file discovery, **not exact main-session inheritance**; CLI-only, inline, and built-in extensions are not reloaded. See [subagent extension settings](docs/settings.md#labs-enable-subagent-extensions-subagentextensions) and read the [limitations](docs/subagent-extension-limitations.md) before enabling.
 
-Enable **[labs] Final Recap** in `/agents` to automatically ask the idle main agent to summarize detached-agent results, keeping the final response in the main thread. It is off by default and suppressed by Subagent Mode Off. **Enabling it may cause extra model turns and uses more tokens and context.** See [Final Recap](docs/settings.md#labs-final-recap-finalrecap).
+Enable **[labs] Final Recap** in `/agents` to automatically ask the idle main agent to collect detached-agent results and continue unfinished work, or recap when the overall task is complete, keeping the final response in the main thread. It is off by default and suppressed by Subagent Mode Off. **Enabling it may cause extra model turns and uses more tokens and context.** See [Final Recap](docs/settings.md#labs-final-recap-finalrecap).
 
 **[labs] Checklist integration** is always listed in `/agents settings` but can only be turned on while a loaded, active [pi-checklist](https://github.com/championswimmer/pi-checklist) ≥3.0.0 has task meta enabled (`/checklist settings meta`). When on and eligible, the main agent's prompt explains tagging tasks with `meta.agent`; in Orchestration mode the main agent must use the checklist. See [Checklist integration](docs/settings.md#labs-checklist-integration-checklistintegration).
 
@@ -97,6 +97,7 @@ Enable **[labs] Final Recap** in `/agents` to automatically ask the idle main ag
 - [Your own agent](docs/custom-agents.md) — walkthrough for writing an agent type
 - [Settings](docs/settings.md) — every setting and option, and when to use each
 - [Threads and lifecycle](docs/threads.md) — paths, context, pause/resume, persistence
+- [Asynchronous lifecycle](docs/async-lifecycle.md) — flow and timing diagrams for completion, wakes, and continuation
 - [Tools and UI](docs/tools-and-ui.md) — model-facing tools, parallel work, dialogs
 - [Importing agents](docs/importing-agents.md) — migrate from other pi subagent packages
 - [Bundled agents](docs/default-agents.md) — routing, tool boundaries, model suggestions

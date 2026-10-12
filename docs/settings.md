@@ -129,9 +129,11 @@ pi-checklist exposes no runtime API, events or version query, so this is a sourc
 
 **[labs] Final Recap** is an experimental on/off toggle, **off by default**. Enable it in `/agents` and save with **Ctrl+S**, or set `"finalRecap": true` in your settings file.
 
-When detached agents finish or fail and the main agent is idle, their results are sent back to the main agent for an automatic summary. The summary is a main-thread response, so child notifications do not become the final visible message. Progress updates do not trigger summaries, and active main-agent work is not interrupted. **Subagent Mode Off** suppresses automatic summaries even if this setting is enabled.
+When detached agents finish or fail and the main agent is idle, their results are sent back to the main agent. It collects results and continues any unfinished work; only when the overall task is complete does it give a final recap. The response stays in the main thread, so child notifications do not become the final visible message. Progress updates do not trigger turns, and active main-agent work is not interrupted. **Subagent Mode Off** suppresses automatic turns even if this setting is enabled.
 
-With Final Recap on, async completion events no longer wake the main agent one by one; the recap turn starts once every outstanding async agent has reported (spawn-timeout events still wake it).
+With Final Recap on, async completion events no longer wake the main agent one by one; the completion/continuation turn starts once every outstanding async agent has reported, including nested descendants. Reporting timers need not expire: completion cancels them and reevaluates batch readiness immediately. Spawn-timeout events still wake the main agent; a timeout wake and a ready completion batch are coalesced into one turn.
+
+The scheduler retains pending notifications while the main agent is busy (including compaction), then retries once it is idle. A single turn reservation prevents duplicate wakes. Session switches and shutdown cancel scheduled delivery; completed batch IDs are persisted to avoid replaying consumed results. See the [asynchronous lifecycle flow and timing diagrams](async-lifecycle.md) for sibling completion, nested agents, timeout coalescing, and follow-up work.
 
 **Enabling Final Recap may cause extra model turns and uses more tokens and context.** Leave it off if you prefer to inspect results manually in `/agents tree` or request a summary yourself.
 

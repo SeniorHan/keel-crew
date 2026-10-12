@@ -9,6 +9,7 @@ import { withOfflineHarness } from "./helpers/integrationHarness.ts";
 const UPDATE = "pi-subagent:update";
 const SUMMARY = "pi-subagent:final-recap";
 const MAILBOX = "pi-subagent:root-mailbox:v1";
+const WAKE = "pi-subagent:wake";
 const worker = "---\nname: worker\ndescription: Execute work\ntools:\n  allow: [agent_update]\n---\nExecute your assigned task.\n";
 const answer = (text: string): AssistantMessage => ({
   role: "assistant", content: [{ type: "text", text }],
@@ -30,6 +31,16 @@ const spawn = (count = 1, wait = false): AssistantMessage => ({
     arguments: { path: `worker-${i}`, type: "worker", task: `Task ${i}`, wait },
   })),
 });
+const timedSpawn = (count = 1): AssistantMessage => ({
+  ...answer(""), stopReason: "toolUse",
+  content: Array.from({ length: count }, (_, i) => ({
+    type: "toolCall", id: `timed-spawn-${i}`, name: "agent_spawn",
+    arguments: { path: `worker-${i}`, type: "worker", task: `Task ${i}`, wait: false, timeoutMs: 300000 },
+  })),
+});
+const summaryIds = (manager: SessionManager) => messages(manager, SUMMARY).map(
+  (entry) => (entry.details as { mailboxIds: string[] }).mailboxIds,
+);
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => { resolve = done; });
@@ -281,3 +292,409 @@ for (const suppression of ["finalRecap", "off"] as const) {
     });
   });
 }
+
+for (const order of [
+  [0, 1, 2],
+  [0, 2, 1],
+  [1, 0, 2],
+  [1, 2, 0],
+  [2, 0, 1],
+  [2, 1, 0],
+]) {
+  test(
+    `timed detached siblings finishing in order ${order.join(" → ")} trigger one continuation before reporting timers expire`,
+    { timeout: 15000 },
+    async () => {
+      const children = Array.from({ length: 3 }, () => deferred<AssistantMessage>());
+      let rootCalls = 0;
+      await withOfflineHarness(
+        {
+          agentFiles: { worker },
+          managerSettings: { finalRecap: true },
+          onRequest(request) {
+            if (request.path) return children[Number(request.path.at(-1))]!.promise;
+            rootCalls++;
+            if (rootCalls === 1) return timedSpawn(3);
+            if (rootCalls === 2) return answer("Waiting for timed parallel work");
+            assert.equal(rootCalls, 3, "the final completion triggers exactly one request");
+            assert.match(request.messagesText, /continue any unfinished work/);
+            assert.match(request.messagesText, /If the overall task is complete/);
+            for (let i = 0; i < 3; i++)
+              assert.match(request.messagesText, new RegExp(`Timed result ${i}`));
+            return answer("All timed work is complete");
+          },
+        },
+        async ({ cwd, open, requests, errors }) => {
+          const session = await open(SessionManager.create(cwd));
+          try {
+            await session.prompt("Delegate three tasks, then finish the overall task");
+            await waitFor(
+              () => requests.filter((r) => r.path).length === 3,
+              "all timed children running",
+            );
+            for (const [position, childIndex] of order.entries()) {
+              children[childIndex]!.resolve(answer(`Timed result ${childIndex}`));
+              await waitFor(
+                () => mailbox(session.sessionManager).length === position + 1,
+                `completion ${childIndex} retained`,
+              );
+              if (position < 2) {
+                await flushTimers();
+                assert.equal(
+                  requests.filter((r) => !r.path).length,
+                  2,
+                  "no early recap with a sibling outstanding",
+                );
+                assert.equal(messages(session.sessionManager, SUMMARY).length, 0);
+              }
+            }
+            await waitFor(
+              () => requests.filter((r) => !r.path).length === 3 && session.isIdle,
+              "single final completion turn",
+            );
+            assert.equal(summaryIds(session.sessionManager).length, 1);
+            assert.equal(new Set(summaryIds(session.sessionManager)[0]).size, 3);
+            assert.equal(
+              messages(session.sessionManager, WAKE).length,
+              0,
+              "unexpired report timers do not create wakes",
+            );
+            assertLastVisible(session.sessionManager, "All timed work is complete");
+            await flushTimers();
+            assert.equal(requests.filter((r) => !r.path).length, 3, "no completion loop");
+            assert.deepEqual(errors, []);
+          } finally {
+            children.forEach((child, i) => child.resolve(answer(`Cleanup ${i}`)));
+          }
+        },
+      );
+    },
+  );
+}
+
+test(
+  "last timed nested descendant unblocks a recap after both detached root parents have settled",
+  { timeout: 15000 },
+  async () => {
+    const parent = deferred<AssistantMessage>();
+    const sibling = deferred<AssistantMessage>();
+    const leaf = deferred<AssistantMessage>();
+    let rootCalls = 0;
+    await withOfflineHarness(
+      {
+        agentFiles: {
+          worker: worker.replace("allow: [agent_update]", "allow: [agent_update, agent_spawn]"),
+        },
+        managerSettings: { finalRecap: true },
+        onRequest(request) {
+          if (request.path === "/root/worker-0/leaf") return leaf.promise;
+          if (request.path === "/root/worker-0")
+            return request.pathCall === 1
+              ? toolUse("spawn-leaf", "agent_spawn", {
+                  path: "leaf",
+                  type: "worker",
+                  task: "Nested task",
+                  wait: false,
+                  timeoutMs: 300000,
+                })
+              : parent.promise;
+          if (request.path === "/root/worker-1") return sibling.promise;
+          rootCalls++;
+          if (rootCalls === 1) return timedSpawn(2);
+          if (rootCalls === 2) return answer("Waiting for nested work");
+          assert.equal(rootCalls, 3, "only the last descendant unblocks the batch");
+          assert.match(request.messagesText, /continue any unfinished work/);
+          assert.match(request.messagesText, /Parent handed back/);
+          assert.match(request.messagesText, /Sibling handed back/);
+          return answer("Nested batch recap");
+        },
+      },
+      async ({ cwd, open, requests, errors }) => {
+        const session = await open(SessionManager.create(cwd));
+        try {
+          await session.prompt("Delegate parallel and nested work");
+          await waitFor(
+            () => requests.some((r) => r.path === "/root/worker-0/leaf"),
+            "nested leaf running",
+          );
+          parent.resolve(answer("Parent handed back"));
+          sibling.resolve(answer("Sibling handed back"));
+          await waitFor(() => mailbox(session.sessionManager).length === 2, "root parents settled");
+          await flushTimers();
+          assert.equal(
+            requests.filter((r) => !r.path).length,
+            2,
+            "a nested descendant still blocks recap",
+          );
+          assert.equal(messages(session.sessionManager, SUMMARY).length, 0);
+          leaf.resolve(answer("Nested leaf finished last"));
+          await waitFor(
+            () => requests.filter((r) => !r.path).length === 3 && session.isIdle,
+            "root woken by nested settlement",
+          );
+          assert.equal(summaryIds(session.sessionManager).length, 1);
+          assert.equal(
+            new Set(summaryIds(session.sessionManager)[0]).size,
+            2,
+            "root completion IDs consumed once",
+          );
+          assert.equal(messages(session.sessionManager, WAKE).length, 0);
+          assertLastVisible(session.sessionManager, "Nested batch recap");
+          await flushTimers();
+          assert.equal(requests.filter((r) => !r.path).length, 3);
+          assert.deepEqual(errors, []);
+        } finally {
+          parent.resolve(answer("Cleanup parent"));
+          sibling.resolve(answer("Cleanup sibling"));
+          leaf.resolve(answer("Cleanup leaf"));
+        }
+      },
+    );
+  },
+);
+
+test(
+  "timed completion during manual-compaction busy state retries after idle without agent_settled",
+  { timeout: 15000 },
+  async () => {
+    const child = deferred<AssistantMessage>();
+    let rootCalls = 0;
+    await withOfflineHarness(
+      {
+        agentFiles: { worker },
+        managerSettings: { finalRecap: true },
+        onRequest(request) {
+          if (request.path) return child.promise;
+          rootCalls++;
+          if (rootCalls === 1) return timedSpawn();
+          if (rootCalls === 2) return answer("Initial answer before compaction");
+          assert.equal(rootCalls, 3, "one retry wakes the root after compaction");
+          assert.match(request.messagesText, /Result retained during compaction/);
+          return answer("Recap after compaction");
+        },
+      },
+      async ({ cwd, open, requests, errors }) => {
+        const session = await open(SessionManager.create(cwd));
+        // Model only the SDK's manual-compaction busy flag, not compaction's content
+        // rewrite. Clearing it intentionally emits no agent_settled event.
+        const sdk = session as unknown as { _compactionAbortController?: AbortController };
+        let settled = 0;
+        const unsubscribe = session.subscribe((event) => {
+          if (event.type === "agent_settled") settled++;
+        });
+        try {
+          await session.prompt("Delegate timed work");
+          assert.equal(session.isIdle, true);
+          const settledBeforeCompaction = settled;
+          sdk._compactionAbortController = new AbortController();
+          assert.equal(session.isIdle, false);
+          child.resolve(answer("Result retained during compaction"));
+          await waitFor(
+            () => mailbox(session.sessionManager).length === 1,
+            "compaction-busy completion retained",
+          );
+          // Allow at least one 100ms busy retry before clearing the SDK flag.
+          await new Promise<void>((resolve) => setTimeout(resolve, 150));
+          assert.equal(requests.filter((r) => !r.path).length, 2);
+          assert.equal(
+            messages(session.sessionManager, UPDATE).length,
+            0,
+            "busy root mailbox is not drained",
+          );
+          assert.equal(settled, settledBeforeCompaction, "child settlement is not root settlement");
+          sdk._compactionAbortController = undefined;
+          assert.equal(session.isIdle, true);
+          assert.equal(settled, settledBeforeCompaction, "idle transition emitted no settlement");
+          await waitFor(
+            () => requests.filter((r) => !r.path).length === 3 && session.isIdle,
+            "retry delivers after compaction",
+          );
+          assert.equal(summaryIds(session.sessionManager).length, 1);
+          assert.equal(messages(session.sessionManager, UPDATE).length, 1);
+          assertLastVisible(session.sessionManager, "Recap after compaction");
+          await flushTimers();
+          assert.equal(requests.filter((r) => !r.path).length, 3);
+          assert.deepEqual(errors, []);
+        } finally {
+          sdk._compactionAbortController = undefined;
+          unsubscribe();
+          child.resolve(answer("Cleanup"));
+        }
+      },
+    );
+  },
+);
+
+test(
+  "pending timeout wake and final timed completion coalesce into one recap turn",
+  { timeout: 15000 },
+  async () => {
+    const children = [deferred<AssistantMessage>(), deferred<AssistantMessage>()];
+    let rootCalls = 0;
+    await withOfflineHarness(
+      {
+        agentFiles: { worker },
+        managerSettings: { finalRecap: true },
+        onRequest(request) {
+          if (request.path) return children[Number(request.path.at(-1))]!.promise;
+          rootCalls++;
+          if (rootCalls === 1) return timedSpawn(2);
+          if (rootCalls === 2) return answer("Initial timeout-race answer");
+          assert.equal(rootCalls, 3, "no separate timeout wake plus recap");
+          assert.match(request.messagesText, /Retained report-only timeout/);
+          assert.match(request.messagesText, /First timed result/);
+          assert.match(request.messagesText, /Last timed result/);
+          return answer("Coalesced root recap");
+        },
+      },
+      async ({ cwd, open, requests, errors }) => {
+        const session = await open(SessionManager.create(cwd));
+        const sdk = session as unknown as { _compactionAbortController?: AbortController };
+        try {
+          await session.prompt("Delegate timed work with a pending report");
+          children[0]!.resolve(answer("First timed result"));
+          await waitFor(
+            () => mailbox(session.sessionManager).length === 1,
+            "first completion retained",
+          );
+          await flushTimers();
+          // Hold the common scheduler's deferred boundary deterministically. This
+          // mailbox entry models a timeout already emitted by the report-only timer.
+          sdk._compactionAbortController = new AbortController();
+          session.sessionManager.appendCustomEntry(MAILBOX, {
+            rootSessionId: session.sessionManager.getSessionId(),
+            content: "Retained report-only timeout",
+            trigger: true,
+            finalRecap: false,
+            details: { mailboxId: "timeout-race", path: "/root/worker-1", state: "running" },
+          });
+          await reload(session);
+          children[1]!.resolve(answer("Last timed result"));
+          await waitFor(
+            () => mailbox(session.sessionManager).length === 3,
+            "last completion retained alongside timeout",
+          );
+          assert.equal(requests.filter((r) => !r.path).length, 2);
+          sdk._compactionAbortController = undefined;
+          await waitFor(
+            () => requests.filter((r) => !r.path).length === 3 && session.isIdle,
+            "one coalesced recap",
+          );
+          assert.equal(messages(session.sessionManager, WAKE).length, 0);
+          assert.equal(summaryIds(session.sessionManager).length, 1);
+          assert.equal(new Set(summaryIds(session.sessionManager)[0]).size, 2);
+          assert.ok(
+            !summaryIds(session.sessionManager)[0]!.includes("timeout-race"),
+            "recap consumes completion IDs only",
+          );
+          assert.equal(messages(session.sessionManager, UPDATE).length, 3);
+          assertLastVisible(session.sessionManager, "Coalesced root recap");
+          await reload(session);
+          await flushTimers();
+          assert.equal(
+            requests.filter((r) => !r.path).length,
+            3,
+            "timeout intent was consumed by the recap",
+          );
+          assert.deepEqual(errors, []);
+        } finally {
+          sdk._compactionAbortController = undefined;
+          children.forEach((child) => child.resolve(answer("Cleanup")));
+        }
+      },
+    );
+  },
+);
+
+test(
+  "automatic completion turn may continue work and receives one follow-up for completion while still busy",
+  { timeout: 15000 },
+  async () => {
+    const first = deferred<AssistantMessage>();
+    const next = deferred<AssistantMessage>();
+    const continuation = deferred<AssistantMessage>();
+    let rootCalls = 0;
+    await withOfflineHarness(
+      {
+        agentFiles: { worker },
+        managerSettings: { finalRecap: true },
+        onRequest(request) {
+          if (request.path === "/root/worker-0") return first.promise;
+          if (request.path === "/root/next") return next.promise;
+          rootCalls++;
+          if (rootCalls === 1) return timedSpawn();
+          if (rootCalls === 2) return answer("Initial work is delegated");
+          if (rootCalls === 3) {
+            assert.match(request.messagesText, /continue any unfinished work/);
+            return toolUse("continue-next-batch", "agent_spawn", {
+              path: "next",
+              type: "worker",
+              task: "Dependent unfinished work",
+              wait: false,
+              timeoutMs: 300000,
+            });
+          }
+          if (rootCalls === 4) return continuation.promise;
+          assert.equal(rootCalls, 5, "exactly one follow-up after the automatic turn settles");
+          assert.match(request.messagesText, /Dependent work completed/);
+          return answer("Overall task is finally complete");
+        },
+      },
+      async ({ cwd, open, requests, errors }) => {
+        const session = await open(SessionManager.create(cwd));
+        try {
+          await session.prompt("Complete initial work and then dependent work");
+          first.resolve(answer("Initial work completed"));
+          await waitFor(
+            () => rootCalls === 4 && requests.some((r) => r.path === "/root/next"),
+            "automatic continuation busy with dependent work",
+          );
+          assert.equal(session.isIdle, false);
+          assert.equal(summaryIds(session.sessionManager).length, 1);
+          next.resolve(answer("Dependent work completed"));
+          await waitFor(
+            () => mailbox(session.sessionManager).length === 2,
+            "completion during automatic turn retained",
+          );
+          await flushTimers();
+          assert.equal(
+            requests.filter((r) => !r.path).length,
+            4,
+            "busy automatic turn is not interrupted",
+          );
+          assert.equal(summaryIds(session.sessionManager).length, 1);
+          continuation.resolve(answer("Dependent work was launched"));
+          await waitFor(
+            () => requests.filter((r) => !r.path).length === 5 && session.isIdle,
+            "follow-up after automatic continuation settles",
+          );
+          const ids = summaryIds(session.sessionManager);
+          assert.equal(ids.length, 2);
+          assert.deepEqual(
+            ids.map((batch) => batch.length),
+            [1, 1],
+          );
+          assert.equal(
+            new Set(ids.flat()).size,
+            2,
+            "each completion ID consumed by only one batch",
+          );
+          assert.equal(messages(session.sessionManager, WAKE).length, 0);
+          assertLastVisible(session.sessionManager, "Overall task is finally complete");
+          await reload(session);
+          await flushTimers();
+          assert.equal(
+            requests.filter((r) => !r.path).length,
+            5,
+            "no replay of either consumed batch",
+          );
+          assert.deepEqual(errors, []);
+        } finally {
+          first.resolve(answer("Cleanup first"));
+          next.resolve(answer("Cleanup next"));
+          continuation.resolve(answer("Cleanup continuation"));
+        }
+      },
+    );
+  },
+);

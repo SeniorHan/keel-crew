@@ -81,21 +81,16 @@ export default function piSubagent(pi: ExtensionAPI): void {
   let rootTurnEnded = false;
   const hiddenWidgetThreads = new Set<string>();
   let widgetCollapsed = false;
-  let summaryRunning = false;
+  let rootTurnRunning = false;
   let suspendingSummaries = false;
-  let summaryTimer: ReturnType<typeof setTimeout> | undefined;
+  // One arbiter owns both timeout wakes and completion/continuation turns.
+  let rootTurnTimer: ReturnType<typeof setTimeout> | undefined;
   let wakeRequested = false;
-  let wakeTimer: ReturnType<typeof setTimeout> | undefined;
-  const cancelWake = () => {
-    if (wakeTimer !== undefined) clearTimeout(wakeTimer);
-    wakeTimer = undefined;
-    wakeRequested = false;
-  };
   const cancelSummary = () => {
-    cancelWake();
-    if (summaryTimer !== undefined) clearTimeout(summaryTimer);
-    summaryTimer = undefined;
-    summaryRunning = false;
+    if (rootTurnTimer !== undefined) clearTimeout(rootTurnTimer);
+    rootTurnTimer = undefined;
+    wakeRequested = false;
+    rootTurnRunning = false;
   };
   // Right at a tree leaf steps tree → full: leave any session collapse behind.
   const returnToWidget = () => {
@@ -275,39 +270,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
     );
     if (notification.trigger === true) wakeRequested = true;
   };
-  /** Wake an idle main agent once for all pending async events (coalesced, after the settle boundary). */
-  const scheduleWake = (ctx: ExtensionContext) => {
-    if (!wakeRequested || wakeTimer !== undefined || limits.subagentMode === "off") return;
-    const currentGeneration = generation;
-    wakeTimer = setTimeout(() => {
-      wakeTimer = undefined;
-      if (
-        currentGeneration !== generation ||
-        context?.sessionManager !== ctx.sessionManager ||
-        limits.subagentMode === "off" ||
-        suspendingSummaries ||
-        !wakeRequested
-      )
-        return;
-      if (ctx.isIdle() === false) return; // agent_settled reschedules
-      wakeRequested = false;
-      try {
-        pi.sendMessage(
-          {
-            customType: ROOT_WAKE_MESSAGE,
-            content:
-              "Asynchronous subagent event(s) arrived (see the preceding subagent notifications). " +
-              "React: collect results with agent_output, and for a timeout event decide to wait, steer, stop or re-arm with agent_steer using path and timeoutMs only (omit message; resets the reporting timer from now without interrupting the running agent).",
-            display: false,
-            details: {},
-          },
-          { triggerTurn: true },
-        );
-      } catch (error) {
-        warnDelivery(error);
-      }
-    }, 0);
-  };
   const pendingSummaries = (ctx: ExtensionContext) => {
     const entries = ctx.sessionManager.getBranch();
     const summarized = new Set(
@@ -329,63 +291,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
         : [];
     });
   };
-  const scheduleSummary = (ctx: ExtensionContext) => {
-    if (
-      !limits.finalRecap ||
-      limits.subagentMode === "off" ||
-      summaryRunning ||
-      suspendingSummaries ||
-      summaryTimer !== undefined ||
-      ctx.isIdle() === false ||
-      (manager?.outstandingAsync() ?? 0) > 0 ||
-      !pendingSummaries(ctx).length
-    )
-      return;
-    const currentGeneration = generation;
-    // Coalesce siblings finishing together and leave the settlement boundary before
-    // starting a new turn. Recheck settings/session/idle state after the deferral.
-    summaryTimer = setTimeout(() => {
-      summaryTimer = undefined;
-      if (
-        currentGeneration !== generation ||
-        context?.sessionManager !== ctx.sessionManager ||
-        !limits.finalRecap ||
-        limits.subagentMode === "off" ||
-        suspendingSummaries ||
-        ctx.isIdle() === false ||
-        (manager?.outstandingAsync() ?? 0) > 0
-      )
-        return;
-      const notifications = pendingSummaries(ctx);
-      if (!notifications.length) return;
-      summaryRunning = true;
-      try {
-        pi.sendMessage(
-          {
-            customType: ROOT_SUMMARY_MESSAGE,
-            content:
-              "Summarize the newly finished asynchronous subagent results for the user. " +
-              "Their results are in the preceding subagent notifications; use agent_output if more detail is needed. " +
-              "Give a concise main-thread answer covering results and any failures. " +
-              "Do not spawn or resume agents solely to summarize.\nAgents: " +
-              [...new Set(notifications.map((notification) => notification.details.path))].join(
-                ", ",
-              ),
-            display: false,
-            details: {
-              mailboxIds: notifications.map((notification) => notification.details.mailboxId),
-            },
-          },
-          { triggerTurn: true },
-        );
-      } catch (error) {
-        summaryRunning = false;
-        warnDelivery(error);
-      }
-    }, 0);
-  };
-  const restoreRootMailbox = (ctx: ExtensionContext) => {
-    if (limits.subagentMode === "off" || ctx.isIdle?.() === false) return;
+  const pendingRootNotifications = (ctx: ExtensionContext) => {
     const entries = ctx.sessionManager.getBranch();
     const delivered = new Set(
       entries.flatMap((entry) => {
@@ -394,25 +300,115 @@ export default function piSubagent(pi: ExtensionAPI): void {
         return typeof id === "string" ? [id] : [];
       }),
     );
-    for (const entry of entries) {
-      if (entry.type !== "custom" || entry.customType !== ROOT_MAILBOX_ENTRY) continue;
+    return entries.flatMap((entry) => {
+      if (entry.type !== "custom" || entry.customType !== ROOT_MAILBOX_ENTRY) return [];
       const notification = entry.data as RootNotification | undefined;
       if (
-        notification?.rootSessionId === ctx.sessionManager.getSessionId() &&
-        typeof notification.content === "string" &&
-        typeof notification.details?.mailboxId === "string" &&
-        !delivered.has(notification.details.mailboxId)
-      ) {
-        sendRootNotification(notification);
-        delivered.add(notification.details.mailboxId);
-      }
-    }
-    scheduleWake(ctx);
-    scheduleSummary(ctx);
+        notification?.rootSessionId !== ctx.sessionManager.getSessionId() ||
+        typeof notification.content !== "string" ||
+        typeof notification.details?.mailboxId !== "string" ||
+        delivered.has(notification.details.mailboxId)
+      )
+        return [];
+      delivered.add(notification.details.mailboxId);
+      return [notification];
+    });
+  };
+  const scheduleRootTurn = (ctx: ExtensionContext) => {
+    if (
+      limits.subagentMode === "off" ||
+      rootTurnRunning ||
+      suspendingSummaries ||
+      rootTurnTimer !== undefined
+    )
+      return;
+    // Include undelivered mailbox entries: a completion may arrive while Pi is
+    // compacting, which does not necessarily produce an agent_settled event.
+    if (
+      !wakeRequested &&
+      !(limits.finalRecap && (manager?.outstandingAsync() ?? 0) === 0 && pendingSummaries(ctx).length > 0) &&
+      !pendingRootNotifications(ctx).some((notification) => notification.trigger === true)
+    )
+      return;
+    const currentGeneration = generation;
+    // Zero-delay deferral crosses the SDK settlement boundary; busy retries also
+    // cover compaction and other non-agent busy periods. Reporting timers are
+    // deliberately irrelevant to completion readiness.
+    rootTurnTimer = setTimeout(
+      () => {
+        rootTurnTimer = undefined;
+        if (
+          currentGeneration !== generation ||
+          context?.sessionManager !== ctx.sessionManager ||
+          limits.subagentMode === "off" ||
+          suspendingSummaries ||
+          rootTurnRunning
+        )
+          return;
+        if (ctx.isIdle() === false) {
+          scheduleRootTurn(ctx);
+          return;
+        }
+        drainRootMailbox(ctx);
+        const notifications =
+          limits.finalRecap && (manager?.outstandingAsync() ?? 0) === 0
+            ? pendingSummaries(ctx)
+            : [];
+        if (!notifications.length && !wakeRequested) return;
+        const wasWakeRequested = wakeRequested;
+        wakeRequested = false;
+        rootTurnRunning = true; // Also reserves a normal wake until agent_settled.
+        try {
+          pi.sendMessage(
+            notifications.length
+              ? {
+                  customType: ROOT_SUMMARY_MESSAGE,
+                  content:
+                    "The asynchronous subagent batch has finished. Collect and inspect its results " +
+                    "(use agent_output if more detail is needed), then continue any unfinished work in the user's task. " +
+                    "If the overall task is complete, give a concise final recap covering results and failures. " +
+                    "Do not spawn or resume agents solely to summarize.\nAgents: " +
+                    [
+                      ...new Set(notifications.map((notification) => notification.details.path)),
+                    ].join(", "),
+                  display: false,
+                  details: {
+                    mailboxIds: notifications.map((notification) => notification.details.mailboxId),
+                  },
+                }
+              : {
+                  customType: ROOT_WAKE_MESSAGE,
+                  content:
+                    "Asynchronous subagent event(s) arrived (see the preceding subagent notifications). " +
+                    "Collect results with agent_output and continue any unfinished work; recap when the overall task is complete. " +
+                    "For a timeout event decide to wait, steer, stop or re-arm with agent_steer using path and timeoutMs only " +
+                    "(omit message; resets the reporting timer from now without interrupting the running agent).",
+                  display: false,
+                  details: {},
+                },
+            { triggerTurn: true },
+          );
+        } catch (error) {
+          rootTurnRunning = false;
+          wakeRequested = wasWakeRequested;
+          warnDelivery(error);
+        }
+      },
+      ctx.isIdle() === false ? 100 : 0,
+    );
+    rootTurnTimer.unref?.();
+  };
+  const drainRootMailbox = (ctx: ExtensionContext) => {
+    if (limits.subagentMode === "off" || ctx.isIdle?.() === false) return;
+    for (const notification of pendingRootNotifications(ctx)) sendRootNotification(notification);
+  };
+  const restoreRootMailbox = (ctx: ExtensionContext) => {
+    drainRootMailbox(ctx);
+    scheduleRootTurn(ctx);
   };
   pi.on("agent_settled", async (_event, ctx) => {
     if (context?.sessionManager === ctx.sessionManager) {
-      summaryRunning = false;
+      rootTurnRunning = false;
       restoreRootMailbox(ctx);
     }
   });
@@ -462,7 +458,12 @@ export default function piSubagent(pi: ExtensionAPI): void {
         // The eventual transcript message carries its ID for branch-local recovery.
         pi.appendEntry(ROOT_MAILBOX_ENTRY, notification);
         restoreRootMailbox(requireContext());
-      } else void requireManager().deliver(event.recipient, message).catch(warnDelivery);
+      } else {
+        void requireManager().deliver(event.recipient, message).catch(warnDelivery);
+        // Global outstandingAsync includes nested descendants, so their last
+        // settlement must unblock a root batch even when its parent has finished.
+        if (event.kind === "settled") restoreRootMailbox(requireContext());
+      }
     } catch (error) {
       warnDelivery(error);
     }
@@ -521,7 +522,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
   pi.on("agent_start", async (_event, ctx) => {
     // A new task must not resurrect the previous task's settled agents. Automatic
     // final-recap turns still belong to that task and keep its results visible.
-    if (manager && !summaryRunning) {
+    if (manager && !rootTurnRunning) {
       for (const thread of manager.list()) {
         if (thread.state !== "starting" && thread.state !== "running")
           hiddenWidgetThreads.add(thread.path);
