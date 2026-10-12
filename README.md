@@ -90,6 +90,8 @@ Enable **[labs] Enable subagent extensions** in `/agents settings` to reload con
 
 Enable **[labs] Final Recap** in `/agents` to automatically ask the idle main agent to summarize detached-agent results, keeping the final response in the main thread. It is off by default and suppressed by Subagent Mode Off. **Enabling it may cause extra model turns and uses more tokens and context.** See [Final Recap](docs/settings.md#labs-final-recap-finalrecap).
 
+**[labs] Checklist integration** is always listed in `/agents settings` but can only be turned on while a loaded, active [pi-checklist](https://github.com/championswimmer/pi-checklist) ≥3.0.0 has task meta enabled (`/checklist settings meta`). When on and eligible, the main agent's prompt explains tagging tasks with `meta.agent`; in Orchestration mode the main agent must use the checklist. See [Checklist integration](docs/settings.md#labs-checklist-integration-checklistintegration).
+
 ## Docs
 
 - [Your own agent](docs/custom-agents.md) — walkthrough for writing an agent type

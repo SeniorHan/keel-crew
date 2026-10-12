@@ -22,6 +22,7 @@ All keys are optional. Defaults:
   "costIcon": "money",
   "finalRecap": false,
   "subagentExtensions": false,
+  "checklistIntegration": false,
   "modelSelection": "pick-first-scoped",
   "toolFiltering": "allowed",
   "maxLevels": 3,
@@ -110,6 +111,19 @@ When a subagent session opens, it reloads enabled extension files from user conf
 **This is configured-file discovery, not exact main-session inheritance. Bugs and unintended consequences are possible.** Read [subagent extension limitations](subagent-extension-limitations.md) before enabling it: the guide covers excluded extensions, configuration drift, `input` hook bypasses, shared side effects, non-interactive UI, and main-session tool bridges.
 
 Save and apply affects newly opened sessions, including retained sessions reopened after reload. Already-open agents keep their extension runtime until disposed. The main agent's extensions and tool set are not changed. Leave this off unless your extensions are safe to run across separate sessions.
+
+## [labs] Checklist integration (`checklistIntegration`)
+
+Experimental on/off toggle, **off by default**, for use with [pi-checklist](https://github.com/championswimmer/pi-checklist) 3.0.0 or later. The row is always shown in `/agents settings`; it is muted and cannot be turned **On** unless all of these hold right now:
+
+- the `checklist_create`, `checklist_read` and `checklist_update` tools are loaded, active, and registered from one real `pi-checklist` package whose `package.json` version is `3.x.y` or later (prereleases, look-alikes and unreadable manifests are rejected);
+- pi-checklist's task **meta** is enabled in the current session (`/checklist settings meta`; turn it off with `/checklist settings no-meta`).
+
+Eligibility is rechecked when the menu renders, when you toggle, when you save, and before every main-agent turn. A saved **On** stays stored but is shown as inactive while requirements are unmet, and you can always turn it **Off**.
+
+When the setting is on, eligible, and Subagent Mode is not Off, the main agent's system prompt gains a short section explaining how to tag which agent works on each checklist task with a flat meta object such as `meta: { agent: "/root/task-slug" }` (limits: 10 keys, keys ≤40 characters, string values ≤200 characters). In **Orchestration** mode the section also states that the main agent **must** use `checklist_create`, `checklist_read` and `checklist_update` to track its work; in **Opportunistic** mode checklist use stays optional. Subagent (worker) prompts are not changed.
+
+pi-checklist exposes no runtime API, events or version query, so this is a source-backed adapter: identity and version come from the checklist tools' registration origin and owning `package.json`, and the current meta state mirrors pi-checklist's own rule (global `pi-checklist.json` preference, else the latest branch snapshot, else off) at session start/tree navigation, then follows meta changes made in this session. Another session editing the global preference does not change this session until it reloads or navigates. Anything unrecognized fails closed (guidance is not added). `meta.agent` is this extension's convention, not part of pi-checklist's API. With **Enable subagent extensions**, child sessions may load their own checklist state separate from the main agent's.
 
 ## [labs] Final Recap (`finalRecap`)
 

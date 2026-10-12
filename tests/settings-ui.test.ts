@@ -9,6 +9,7 @@ import { dialogHeight, type DialogRow } from "../src/ui/dialog.ts";
 import { AGENT_LOADERS } from "../src/ui/agent-loader.ts";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { configureAgents } from "../src/ui/settings-ui.ts";
+import type { ChecklistStatus } from "../src/orch/checklist-integration.ts";
 import {
   DEFAULT_MANAGER_SETTINGS,
   loadManagerSettings,
@@ -24,12 +25,13 @@ type Menu = { title: string; rows: DialogRow[]; selectedId: string | undefined }
 async function run(
   t: TestContext,
   actions: (string | undefined)[],
-  { settings, trusted = false, width = 80, rows = 24, root: existingRoot, agentDir: existingAgentDir, global, project, onMenu, uiTheme = theme } = {} as {
+  { settings, trusted = false, width = 80, rows = 24, root: existingRoot, agentDir: existingAgentDir, global, project, onMenu, uiTheme = theme, checklistStatus } = {} as {
     settings?: ManagerSettings;
     trusted?: boolean;
     width?: number;
     rows?: number;
     uiTheme?: Theme;
+    checklistStatus?: () => ChecklistStatus;
     root?: string;
     agentDir?: string;
     global?: Partial<ManagerSettings> | string;
@@ -88,6 +90,7 @@ async function run(
     store: new ConfigStore({ cwd: root, agentDir, includeProject: false }),
     agentDir,
     settings: { ...initialSettings },
+    checklistStatus,
     apply: () => {
       applied++;
       appliedSettings.push(loadManagerSettings({ cwd: root, agentDir, includeProject: trusted }).settings);
@@ -176,7 +179,7 @@ test("lab labels remain in the name column with saved dots between name and valu
     global: { nerdFontIcons: true },
     project: { nerdFontIcons: false },
   });
-  for (const id of ["costDisplay", "nerdFontIcons", "loaderStyle", "subagentExtensions", "finalRecap"]) {
+  for (const id of ["costDisplay", "nerdFontIcons", "loaderStyle", "subagentExtensions", "checklistIntegration", "finalRecap"]) {
     const row = result.menus[0]!.rows.find((row) => row.id === id)!;
     assert.match(row.label, /^\[lab\] /);
     assert.equal(row.renderLabel, undefined, "lab label is not stripped by a formatter");
@@ -1094,4 +1097,98 @@ test("turning Nerd Fonts off preserves the saved family and turning them back on
     [...LOADER_STYLES],
   );
   assert.equal(restored.loaded.settings.loaderStyle, "hourglass");
+});
+
+const ELIGIBLE = () => ({ eligible: true }) as ChecklistStatus;
+const UNAVAILABLE = (reason = "pi-checklist task meta is disabled") => () => ({ eligible: false, reason }) as ChecklistStatus;
+
+test("[lab] Checklist integration row is always visible with requirements, muted when unavailable", async (t) => {
+  for (const status of [undefined, UNAVAILABLE(), ELIGIBLE]) {
+    const result = await run(t, ["cancel"], { checklistStatus: status });
+    const row = result.menus[0]!.rows.find((row) => row.id === "checklistIntegration")!;
+    assert.ok(row, "row is always present");
+    assert.equal(row.label, "[lab] Checklist integration");
+    assert.match(row.help!, /pi-checklist ≥3\.0\.0/);
+    assert.match(row.help!, /\/checklist settings meta/);
+    assert.match(row.help!, /meta\.agent/);
+    assert.match(row.help!, /Off by default/);
+    if (status === ELIGIBLE) {
+      assert.equal(row.value, "Off");
+      assert.equal(row.valueColor, undefined);
+    } else {
+      assert.equal(row.value, "Off · unavailable");
+      assert.equal(row.valueColor, "muted");
+      assert.match(row.help!, /Cannot be turned On/);
+    }
+  }
+  const reason = await run(t, ["cancel"], { checklistStatus: UNAVAILABLE("pi-checklist 2.9.0 is unsupported") });
+  assert.match(reason.menus[0]!.rows.find((row) => row.id === "checklistIntegration")!.help!, /2\.9\.0 is unsupported/);
+});
+
+test("[lab] Checklist integration cannot be turned on while ineligible, nothing is saved", async (t) => {
+  const result = await run(t, ["checklistIntegration", "save"], { checklistStatus: UNAVAILABLE("meta is off") });
+  assert.equal(result.value(1, "checklistIntegration"), "Off · unavailable");
+  assert.ok(result.notifications.some((message) => /cannot be enabled: meta is off/.test(message)));
+  assert.ok(result.notificationTypes.includes("warning"));
+  assert.equal(result.loaded.settings.checklistIntegration, false);
+});
+
+test("[lab] Checklist integration toggles and saves only while eligible", async (t) => {
+  const on = await run(t, ["checklistIntegration", "save"], { checklistStatus: ELIGIBLE });
+  assert.equal(on.value(1, "checklistIntegration"), "On");
+  assert.equal(on.loaded.settings.checklistIntegration, true);
+  assert.equal(on.applied, 1);
+  const off = await run(t, ["checklistIntegration", "save"], {
+    settings: { ...DEFAULT_MANAGER_SETTINGS, checklistIntegration: true },
+    checklistStatus: ELIGIBLE,
+  });
+  assert.equal(off.loaded.settings.checklistIntegration, false);
+  const cancelled = await run(t, ["checklistIntegration", "cancel"], { checklistStatus: ELIGIBLE });
+  assert.equal(cancelled.applied, 0);
+  assert.equal(existsSync(cancelled.userFile), false);
+});
+
+test("[lab] Saved-On checklist integration shows inactive when unavailable and can still be turned Off", async (t) => {
+  const settings = { ...DEFAULT_MANAGER_SETTINGS, checklistIntegration: true };
+  const shown = await run(t, ["cancel"], { settings, checklistStatus: UNAVAILABLE() });
+  const row = shown.menus[0]!.rows.find((row) => row.id === "checklistIntegration")!;
+  assert.equal(row.value, "On · inactive (unavailable)");
+  assert.match(row.help!, /Saved On but inactive/);
+  const off = await run(t, ["checklistIntegration", "save"], { settings, checklistStatus: UNAVAILABLE() });
+  assert.equal(off.loaded.settings.checklistIntegration, false);
+  assert.equal(off.applied, 1);
+  // Saving other changes does not disturb a stored On that is merely inactive.
+  const keep = await run(t, ["finalRecap", "save"], { settings, global: settings, checklistStatus: UNAVAILABLE() });
+  assert.equal(keep.loaded.settings.checklistIntegration, true);
+});
+
+test("[lab] Checklist integration eligibility is rechecked at toggle and at save", async (t) => {
+  let eligible = true;
+  const status = () => ({ eligible, reason: "meta was disabled" }) as ChecklistStatus;
+  const toggled = await run(t, ["checklistIntegration", "save"], {
+    checklistStatus: status,
+    onMenu: (_menu, index) => { if (index === 1) eligible = false; },
+  });
+  assert.ok(toggled.notifications.some((message) => /cannot be enabled: meta was disabled/.test(message)));
+  assert.equal(toggled.loaded.settings.checklistIntegration, false);
+  assert.equal(toggled.applied, 0);
+  eligible = true;
+  const drift = await run(t, ["checklistIntegration", "save"], {
+    checklistStatus: status,
+    onMenu: (menu, _index) => { if (menu.rows.find((row) => row.id === "checklistIntegration")?.value === "On") eligible = false; },
+  });
+  assert.equal(drift.loaded.settings.checklistIntegration, false);
+  assert.equal(drift.applied, 0);
+  assert.ok(drift.notificationTypes.includes("error"));
+  assert.ok(drift.notifications.some((message) => /cannot be enabled: meta was disabled/.test(message)));
+});
+
+test("[lab] Checklist integration status errors fail closed and defaults restore Off", async (t) => {
+  const throwing = await run(t, ["checklistIntegration", "cancel"], { checklistStatus: () => { throw new Error("boom"); } });
+  assert.equal(throwing.value(1, "checklistIntegration"), "Off · unavailable");
+  const defaults = await run(t, ["defaults", "user", "cancel"], {
+    settings: { ...DEFAULT_MANAGER_SETTINGS, checklistIntegration: true },
+    checklistStatus: ELIGIBLE,
+  });
+  assert.equal(defaults.loaded.settings.checklistIntegration, false);
 });

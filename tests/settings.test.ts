@@ -71,7 +71,7 @@ const settings = (
   widgetMode: WidgetMode = "full",
   nerdFontIcons = false,
   finalRecap = false,
-) => ({ maxLevels, maxConcurrent, maxThreads, modelSelection, subagentMode, toolFiltering, widgetMode, costDisplay: "pi-footer-status", costValue: "subagents", costIcon: "money", nerdFontIcons, loaderStyle: "circle", finalRecap, subagentExtensions: false });
+) => ({ maxLevels, maxConcurrent, maxThreads, modelSelection, subagentMode, toolFiltering, widgetMode, costDisplay: "pi-footer-status", costValue: "subagents", costIcon: "money", nerdFontIcons, loaderStyle: "circle", finalRecap, subagentExtensions: false, checklistIntegration: false });
 
 const escape = (path: string) => new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 
@@ -107,6 +107,7 @@ test("missing files return a fresh copy of defaults without diagnostics", (t) =>
       loaderStyle: "circle",
       finalRecap: false,
       subagentExtensions: false,
+      checklistIntegration: false,
     },
     diagnostics: [],
   });
@@ -350,6 +351,7 @@ test("save writes canonical 0600 files, creates owned directories, and reloads w
     loaderStyle: "circle",
     finalRecap: false,
     subagentExtensions: false,
+    checklistIntegration: false,
     subagentMode: "opportunistic",
     toolFiltering: "allowed",
     modelSelection: "pick-first-scoped",
@@ -1004,4 +1006,16 @@ test("scope guard permits equivalent property order and deletion with invalid gl
   assert.equal(existsSync(f.projectFile), false);
   assert.equal(readFileSync(f.globalFile, "utf8"), "{malformed");
   assert.equal(load(f).diagnostics.length, 1);
+});
+
+test("checklistIntegration is an opt-in boolean validated on load and save", (t) => {
+  const f = fixture(t);
+  assert.equal(load(f).settings.checklistIntegration, false);
+  save(f, "user", { ...DEFAULTS, checklistIntegration: true });
+  assert.equal(load(f).settings.checklistIntegration, true);
+  writeJson(f.projectFile, { checklistIntegration: "yes" });
+  const invalid = load(f);
+  assert.equal(invalid.settings.checklistIntegration, true);
+  assert.match(invalid.diagnostics.join("\n"), /checklistIntegration must be a boolean/);
+  rejects(() => save(f, "user", { ...DEFAULTS, checklistIntegration: 1 }), /must be a boolean/);
 });
