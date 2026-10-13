@@ -26,7 +26,7 @@ import {
 } from "./dialog.ts";
 import type { ThreadService } from "../types.ts";
 import type { LoaderStyle } from "../prefs/settings.ts";
-import { buildStatusTree, type StatusRow } from "./thread-tree.ts";
+import { buildStatusTree, threadActivity, type StatusRow } from "./thread-tree.ts";
 import {
   AGENT_PROGRESS_INTERVAL,
   agentProgressIcon,
@@ -309,7 +309,7 @@ export class StatusDialog {
     ].join("");
     // Continue the tree's vertical guides without repeating the branch or selection marker.
     const stem = row.prefix.replace("├ ", "│ ").replace("└ ", "  ");
-    const activity = ` ${stem}  ${dialogText(thread.status || thread.task)}`;
+    const activity = ` ${stem}  ${dialogText(threadActivity(thread))}`;
     const metrics = this.theme.fg(base, threadMetrics(thread));
     const metricWidth = visibleWidth(metrics);
     const first =

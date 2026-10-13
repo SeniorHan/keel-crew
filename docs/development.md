@@ -20,6 +20,7 @@ Tests run offline with no model credentials. Scripted-provider SDK tests cover n
 | `src/orch/mailbox.ts`                                                        | Input persistence, replay, transcript reconciliation                                                               |
 | `src/orch/tools.ts`                                                          | Caller-bound model tools                                                                                           |
 | `src/orch/prompt.ts`                                                         | System-prompt guidance per mode                                                                                    |
+| `src/orch/housekeeping.ts`                                                   | [labs] Housekeeping summarizer: throttling, cancellation, model resolution and the one-line summary call          |
 | `src/prefs/config.ts`                                                        | Frontmatter validation, precedence, atomic saves                                                                   |
 | `src/prefs/settings.ts`                                                      | Manager settings, validation, safe paths                                                                           |
 | `src/prefs/models.ts`                                                        | Model selection                                                                                                    |

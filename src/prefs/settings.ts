@@ -54,6 +54,10 @@ export interface ManagerSettings {
   finalRecap: boolean;
   subagentExtensions: boolean;
   checklistIntegration: boolean;
+  /** [labs] One-line agent work summaries written by the housekeeping model. */
+  housekeepingEnabled: boolean;
+  /** `provider/model-id` of the housekeeping model; empty means none selected. */
+  housekeepingModel: string;
   maxLevels: number;
   maxConcurrent: number;
   maxThreads: number;
@@ -76,10 +80,17 @@ export const DEFAULT_MANAGER_SETTINGS: ManagerSettings = {
   finalRecap: false,
   subagentExtensions: false,
   checklistIntegration: false,
+  housekeepingEnabled: false,
+  housekeepingModel: "",
 };
 
+/** Same `provider/model-id` shape as agent model preferences. */
+const HOUSEKEEPING_MODEL = /^[^\s/]+\/[^\s]+$/;
+export const isHousekeepingModel = (value: unknown): value is string =>
+  typeof value === "string" && (value === "" || HOUSEKEEPING_MODEL.test(value));
+
 const KEYS = [
-  "maxLevels", "maxConcurrent", "maxThreads", "modelSelection", "subagentMode", "toolFiltering", "widgetMode", "costDisplay", "costValue", "costIcon", "nerdFontIcons", "loaderStyle", "finalRecap", "subagentExtensions", "checklistIntegration",
+  "maxLevels", "maxConcurrent", "maxThreads", "modelSelection", "subagentMode", "toolFiltering", "widgetMode", "costDisplay", "costValue", "costIcon", "nerdFontIcons", "loaderStyle", "finalRecap", "subagentExtensions", "checklistIntegration", "housekeepingEnabled", "housekeepingModel",
 ] as const;
 const MAX_LEVELS = 32;
 
@@ -117,7 +128,8 @@ function positiveSafeInteger(value: unknown): value is number {
 }
 
 function requirement(key: (typeof KEYS)[number]): string {
-  if (key === "nerdFontIcons" || key === "finalRecap" || key === "subagentExtensions" || key === "checklistIntegration") return `${key} must be a boolean`;
+  if (key === "nerdFontIcons" || key === "finalRecap" || key === "subagentExtensions" || key === "checklistIntegration" || key === "housekeepingEnabled") return `${key} must be a boolean`;
+  if (key === "housekeepingModel") return "housekeepingModel must be empty or provider/model-id";
   if (key === "subagentMode") return "subagentMode must be off, opportunistic or orchestration";
   if (key === "widgetMode") return "widgetMode must be full or minimal";
   if (key === "costDisplay") return "costDisplay must be pi-footer-event, pi-footer-status or pi-status";
@@ -156,9 +168,14 @@ function parseSettings(content: string): Partial<ManagerSettings> {
   for (const key of KEYS) {
     if (!Object.hasOwn(record, key)) continue;
     const value = record[key];
-    if (key === "nerdFontIcons" || key === "finalRecap" || key === "subagentExtensions" || key === "checklistIntegration") {
+    if (key === "nerdFontIcons" || key === "finalRecap" || key === "subagentExtensions" || key === "checklistIntegration" || key === "housekeepingEnabled") {
       if (typeof value !== "boolean") throw new Error(requirement(key));
       layer[key] = value;
+      continue;
+    }
+    if (key === "housekeepingModel") {
+      if (!isHousekeepingModel(value)) throw new Error(requirement(key));
+      layer.housekeepingModel = value;
       continue;
     }
     if (key === "subagentMode") {

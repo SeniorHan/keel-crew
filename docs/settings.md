@@ -23,6 +23,8 @@ All keys are optional. Defaults:
   "finalRecap": false,
   "subagentExtensions": false,
   "checklistIntegration": false,
+  "housekeepingEnabled": false,
+  "housekeepingModel": "",
   "modelSelection": "pick-first-scoped",
   "toolFiltering": "allowed",
   "maxLevels": 3,
@@ -136,6 +138,32 @@ With Final Recap on, async completion events no longer wake the main agent one b
 The scheduler retains pending notifications while the main agent is busy (including compaction), then retries once it is idle. A single turn reservation prevents duplicate wakes. Session switches and shutdown cancel scheduled delivery; completed batch IDs are persisted to avoid replaying consumed results. See the [asynchronous lifecycle flow and timing diagrams](async-lifecycle.md) for sibling completion, nested agents, timeout coalescing, and follow-up work.
 
 **Enabling Final Recap may cause extra model turns and uses more tokens and context.** Leave it off if you prefer to inspect results manually in `/agents tree` or request a summary yourself.
+
+## [labs] Housekeeping model (`housekeepingEnabled`, `housekeepingModel`)
+
+Experimental, **off by default**. A small model of your choice writes a **one-line summary of what each running agent is doing right now**, shown in the fullscreen tree (`/agents tree`) in place of the raw tool-call line (for example `Running the auth unit tests` instead of `Tool: bash`).
+
+Open **[labs] Housekeeping model** in `/agents settings` and set two things, then save with **Ctrl+S**:
+
+| Key | Meaning |
+| --- | --- |
+| `housekeepingEnabled` | The opt-in toggle (`false` by default). |
+| `housekeepingModel` | `provider/model-id` of the housekeeping model, or `""` for none. |
+
+Pick the model in the dialog's searchable picker. It lists **scoped models first** (the main session's `/scoped-models`), then **every other available model** (any model with working credentials). A small, fast, inexpensive model is usually enough. Turning **Summaries** Off keeps the chosen model for later; **No model** clears it. Both keys follow the normal Global / Current Project layering, and the dots show where each is saved.
+
+**What it does**
+
+- After an agent's tool or text activity, the agent's task and its last few activity lines (tool names, a short single-line argument snippet such as a command or path, and assistant text) are sent to the housekeeping model, which replies with a single line of at most 80 characters.
+- The summary is shown only while the agent is **starting or running**. Completed, failed, paused and stopped agents show their real status as before. The compact widget (which shows each agent's task) and the live agent view are unchanged. The original status stays available on the thread (`agent_status` returns both `status` and `summary`).
+- An explicit `agent_update` progress message or pause reason replaces the summary until fresh activity arrives.
+- Summaries are display-only and live-only: they are never written to the session registry, restored after a reload, or counted in cost totals.
+
+**Never worse than off.** If the feature is disabled, no model is selected, the model is unknown, lacks credentials, or the request fails, times out or returns nothing usable, agents show exactly the status they would show without the feature. The first failure after you change settings or switch sessions produces one warning; failed calls then back off and stop for that run after three consecutive failures. Subagent Mode **Off** also turns it off.
+
+**Throttling.** Each agent has at most one housekeeping call in flight and at most one every 10 seconds (activity during a call is coalesced into the next one, after a 1.5 s quiet period), with exponential backoff after failures. At most two calls run at once across all agents, each times out after 20 seconds, and a call is cancelled — and a late answer discarded — when the agent settles or restarts, the toggle or model changes, or the session changes.
+
+**Privacy and cost.** The housekeeping model sees each agent's task and recent activity text, including command and path snippets, so choose a provider you are comfortable sending that to. Calls use extra tokens at that model's price and are **not** included in the subagent cost total or the main session's cost.
 
 ## Model Picking (`modelSelection`)
 

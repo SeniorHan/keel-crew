@@ -71,7 +71,7 @@ const settings = (
   widgetMode: WidgetMode = "full",
   nerdFontIcons = false,
   finalRecap = false,
-) => ({ maxLevels, maxConcurrent, maxThreads, modelSelection, subagentMode, toolFiltering, widgetMode, costDisplay: "pi-footer-status", costValue: "subagents", costIcon: "money", nerdFontIcons, loaderStyle: "circle", finalRecap, subagentExtensions: false, checklistIntegration: false });
+) => ({ maxLevels, maxConcurrent, maxThreads, modelSelection, subagentMode, toolFiltering, widgetMode, costDisplay: "pi-footer-status", costValue: "subagents", costIcon: "money", nerdFontIcons, loaderStyle: "circle", finalRecap, subagentExtensions: false, checklistIntegration: false, housekeepingEnabled: false, housekeepingModel: "" });
 
 const escape = (path: string) => new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 
@@ -108,6 +108,8 @@ test("missing files return a fresh copy of defaults without diagnostics", (t) =>
       finalRecap: false,
       subagentExtensions: false,
       checklistIntegration: false,
+      housekeepingEnabled: false,
+      housekeepingModel: "",
     },
     diagnostics: [],
   });
@@ -352,6 +354,8 @@ test("save writes canonical 0600 files, creates owned directories, and reloads w
     finalRecap: false,
     subagentExtensions: false,
     checklistIntegration: false,
+    housekeepingEnabled: false,
+    housekeepingModel: "",
     subagentMode: "opportunistic",
     toolFiltering: "allowed",
     modelSelection: "pick-first-scoped",
@@ -1018,4 +1022,31 @@ test("checklistIntegration is an opt-in boolean validated on load and save", (t)
   assert.equal(invalid.settings.checklistIntegration, true);
   assert.match(invalid.diagnostics.join("\n"), /checklistIntegration must be a boolean/);
   rejects(() => save(f, "user", { ...DEFAULTS, checklistIntegration: 1 }), /must be a boolean/);
+});
+
+test("housekeeping is an opt-in labs pair validated on load and save, persisting per scope", (t) => {
+  const f = fixture(t);
+  const defaults = load(f).settings;
+  assert.equal(defaults.housekeepingEnabled, false);
+  assert.equal(defaults.housekeepingModel, "");
+  save(f, "user", { ...DEFAULTS, housekeepingEnabled: true, housekeepingModel: "anthropic/claude-haiku-5-5" });
+  const saved = load(f).settings;
+  assert.equal(saved.housekeepingEnabled, true);
+  assert.equal(saved.housekeepingModel, "anthropic/claude-haiku-5-5");
+  writeJson(f.projectFile, { housekeepingModel: "openai/gpt-5-mini" });
+  const layered = load(f);
+  assert.equal(layered.settings.housekeepingModel, "openai/gpt-5-mini");
+  assert.equal(layered.settings.housekeepingEnabled, true, "unset project key inherits global");
+  assert.equal(load(f, false).settings.housekeepingModel, "anthropic/claude-haiku-5-5", "untrusted project ignored");
+  // Ids may contain slashes; only the first separates provider.
+  writeJson(f.projectFile, { housekeepingModel: "openrouter/anthropic/claude-haiku" });
+  assert.equal(load(f).settings.housekeepingModel, "openrouter/anthropic/claude-haiku");
+  for (const bad of ["haiku", "a b/c", "/x", "x/"]) {
+    writeJson(f.projectFile, { housekeepingModel: bad });
+    assert.match(load(f).diagnostics.join("\n"), /housekeepingModel must be empty or provider\/model-id/, bad);
+    rejects(() => save(f, "user", { ...DEFAULTS, housekeepingModel: bad }), /housekeepingModel must be empty or provider\/model-id/);
+  }
+  writeJson(f.projectFile, { housekeepingEnabled: "yes" });
+  assert.match(load(f).diagnostics.join("\n"), /housekeepingEnabled must be a boolean/);
+  rejects(() => save(f, "user", { ...DEFAULTS, housekeepingEnabled: 1 }), /must be a boolean/);
 });

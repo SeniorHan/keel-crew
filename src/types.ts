@@ -55,6 +55,12 @@ export interface ThreadView {
   state: ThreadState;
   task: string;
   status: string;
+  /**
+   * [labs] One-line summary of current work written by the housekeeping model.
+   * Live only: never persisted, cleared when the run settles or restarts.
+   * Renderers prefer it over raw `status` while the agent is active.
+   */
+  summary?: string;
   output?: string;
   error?: string;
   createdAt: number;
@@ -77,7 +83,12 @@ export interface ThreadView {
 }
 export type DriverEvent =
   | { kind: "settings"; model: string; thinkingLevel: ThinkingLevel }
-  | { kind: "activity" | "error"; text: string }
+  | {
+      kind: "activity" | "error";
+      text: string;
+      /** Short sanitized argument snippet (e.g. a command or path) used only as summary context. */
+      detail?: string;
+    }
   | {
       kind: "checkpoint";
       text: string;
@@ -210,12 +221,24 @@ export type ThreadEvent =
       timeoutMs: number;
       recentOutput: string;
     };
+/** Recent live activity of one running agent, offered to the optional housekeeping summarizer. */
+export interface ThreadActivity {
+  path: string;
+  type: string;
+  task: string;
+  /** Identifies one start/resume run; summaries for an older run are stale. */
+  run: number;
+  /** Oldest to newest, bounded. */
+  recent: readonly string[];
+}
 export interface ManagerOptions {
   createDriver: DriverFactory;
   rootSnapshot(): AgentMessage[];
   getType(name: string): AgentType;
   toolsFor(path: string): ToolDefinition[];
   onEvent?(event: ThreadEvent): void;
+  /** Called after each live activity of an active agent. Failures are ignored. */
+  onActivity?(activity: ThreadActivity): void;
   /** Notification failures are diagnostic only; they must never interrupt a runner. */
   onEventError?(error: unknown, event: ThreadEvent): void;
   /** Maximum levels including the main conversation as L1; defaults to 3. */
