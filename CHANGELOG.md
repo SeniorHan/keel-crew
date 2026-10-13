@@ -4,6 +4,18 @@ Generated from version tags and merged GitHub pull requests. Do not edit this fi
 
 ## 0.x — Pre-1.0 releases
 
+### [v0.29.0](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.29.0) — Minor release (2026-10-13)
+
+<!-- Release notes generated using configuration in .github/release.yml at v0.29.0 -->
+
+#### What's Changed
+##### Merged pull requests
+* fix: show agent override scopes and full settings cascade by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/60
+* feat: add labs housekeeping model for one-line agent work summaries by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/62
+
+
+**Full Changelog**: https://github.com/championswimmer/pi-subagent-manager/compare/v0.28.1...v0.29.0
+
 ### [v0.28.0](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.28.0) — Minor release (2026-10-12)
 
 <!-- Release notes generated using configuration in .github/release.yml at v0.28.0 -->
