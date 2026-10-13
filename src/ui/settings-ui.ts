@@ -27,6 +27,7 @@ import {
   type WidgetMode,
 } from "../prefs/settings.ts";
 import { editAgentTypes } from "./ui.ts";
+import { HOUSEKEEPING_PICKER_CANCEL, pickHousekeepingModel } from "./model-picker.ts";
 import type { ToolEditorOptions } from "./tool-picker.ts";
 import { AGENT_LOADERS, availableLoaderStyles, effectiveLoaderStyle } from "./agent-loader.ts";
 import { costIconGlyph } from "./cost-footer.ts";
@@ -224,6 +225,47 @@ async function configureFooterDisplay(ctx: ExtensionCommandContext, draft: Manag
   }
 }
 
+function housekeepingValue(draft: ManagerSettings): string {
+  if (!draft.housekeepingEnabled) return "Off";
+  return draft.housekeepingModel ? `On · ${draft.housekeepingModel}` : "On · no model selected";
+}
+
+const HOUSEKEEPING_HELP =
+  "Experimental: a model you choose writes a one-line summary of each running agent's current work, shown in the tree and widget instead of raw tool-call status.\nSends the agent's task and recent tool names/arguments/text to the selected model, uses extra tokens, and is not included in subagent cost totals.\nOff by default. Any failure keeps the original status. Choose from available and scoped models.";
+
+/** Edits the shared draft; only the outer settings screen saves or applies it. */
+async function configureHousekeeping(ctx: ExtensionCommandContext, draft: ManagerSettings, layers: SettingsLayers): Promise<void> {
+  let selectedId: string | undefined;
+  while (true) {
+    const action = await dialogMenu(ctx, "[lab] Housekeeping model", ([
+      {
+        id: "enabled",
+        label: "Summaries",
+        value: draft.housekeepingEnabled ? "On" : "Off",
+        help: "Name each running agent's work in one line using the housekeeping model, replacing raw tool-call status in the tree and widget.\nInactive until a model is selected. Off by default.",
+      },
+      {
+        id: "model",
+        label: "Model",
+        value: draft.housekeepingModel || "Not selected",
+        valueColor: draft.housekeepingModel ? undefined : "muted" as const,
+        help: "Pick any available model; scoped models are listed first. A small, fast, inexpensive model is usually enough.\nIf the model later becomes unavailable (no credentials, removed), summaries stay inactive and normal status shows.",
+      },
+      { id: "back", label: "Back", help: "Return to settings. Save and apply there to commit these changes." },
+    ] as DialogRow[]).map((row) => {
+      const key = ({ enabled: "housekeepingEnabled", model: "housekeepingModel" } as Record<string, keyof ManagerSettings>)[row.id];
+      return key ? withProvenance(row, [key], layers) : row;
+    }), { selectedId, renderLegend: provenanceLegend, footer: "↑↓/Tab navigate · Enter edit · Esc back" });
+    if (!action || action === "back") return;
+    selectedId = action;
+    if (action === "enabled") draft.housekeepingEnabled = !draft.housekeepingEnabled;
+    else if (action === "model") {
+      const picked = await pickHousekeepingModel(ctx, draft.housekeepingModel);
+      if (picked !== HOUSEKEEPING_PICKER_CANCEL) draft.housekeepingModel = picked;
+    }
+  }
+}
+
 const MODEL_SELECTION_OPTIONS = [
   {
     id: "pick-first-available",
@@ -359,6 +401,13 @@ async function configureAgentsDialog(
           help: "Configure footer location, displayed cost, and money icon in a submenu. Save and apply to update immediately.",
         },
         {
+          id: "housekeeping",
+          label: "[lab] Housekeeping model",
+          value: housekeepingValue(draft),
+          valueColor: draft.housekeepingEnabled && !draft.housekeepingModel ? "warning" as const : undefined,
+          help: HOUSEKEEPING_HELP,
+        },
+        {
           id: "nerdFontIcons",
           label: "[lab] Nerd Font icons",
           value: draft.nerdFontIcons ? "On" : "Off",
@@ -415,6 +464,8 @@ async function configureAgentsDialog(
       ] as DialogRow[]).map((row) => {
         const keys = row.id === "costDisplay"
           ? ["costDisplay", "costValue", "costIcon"] as (keyof ManagerSettings)[]
+          : row.id === "housekeeping"
+            ? ["housekeepingEnabled", "housekeepingModel"] as (keyof ManagerSettings)[]
           : row.id in DEFAULT_MANAGER_SETTINGS ? [row.id as keyof ManagerSettings] : [];
         return keys.length ? withProvenance(row, keys, layers) : row;
       }),
@@ -472,6 +523,8 @@ async function configureAgentsDialog(
           draft.widgetMode = mode as WidgetMode;
       } else if (action === "costDisplay") {
         await configureFooterDisplay(ctx, draft, layers);
+      } else if (action === "housekeeping") {
+        await configureHousekeeping(ctx, draft, layers);
       } else if (action === "nerdFontIcons") {
         draft.nerdFontIcons = !draft.nerdFontIcons;
       } else if (action === "loaderStyle") {

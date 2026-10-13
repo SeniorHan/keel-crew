@@ -47,7 +47,12 @@ interface Record {
   transcriptListeners?: Set<TranscriptListener>;
   detachTranscript?: () => void;
   observationError?: string;
+  /** Increments on every start/resume; guards summaries against stale runs. */
+  runId?: number;
+  /** Bounded recent activity lines for the optional housekeeping summarizer. */
+  recentActivity?: string[];
 }
+const RECENT_ACTIVITY_LIMIT = 12;
 const active = (view: Pick<ThreadView, "state">) =>
   view.state === "starting" || view.state === "running";
 export const MIN_SPAWN_TIMEOUT_MS = 30_000;
@@ -452,6 +457,8 @@ export class ThreadManager {
     if (!message.trim() || message.length > 8000)
       throw new Error("Progress message must contain 1–8000 characters");
     record.view.status = message;
+    // An explicit progress report outranks a generated summary until fresh activity.
+    delete record.view.summary;
     this.touch(record);
     this.emit({
       kind: "update",
@@ -466,6 +473,7 @@ export class ThreadManager {
     if (!active(record.view)) throw new Error("Only a working child may pause itself");
     record.pauseRequested = true;
     record.view.status = reason.trim() || "Awaiting further input";
+    delete record.view.summary;
     this.touch(record);
     // Remains running until the SDK settles. No interim final answer leaks through wait().
     return this.view(record);
@@ -633,6 +641,9 @@ export class ThreadManager {
     record.view.lastStartedAt = record.view.startedAt;
     delete record.view.output;
     delete record.view.error;
+    delete record.view.summary;
+    record.runId = (record.runId ?? 0) + 1;
+    record.recentActivity = [];
     const epoch = this.epoch;
     let markStarted!: () => void;
     record.started = new Promise((resolve) => {
@@ -671,6 +682,8 @@ export class ThreadManager {
       } finally {
         this.clearTimeout(record);
         this.freezeElapsed(record);
+        // A settled agent shows its real status; summaries describe active work only.
+        delete record.view.summary;
         record.liveInputTokens = 0;
         record.liveOutputTokens = 0;
         record.liveCostUsd = undefined;
@@ -735,6 +748,7 @@ export class ThreadManager {
               if (active(record.view) && !record.pauseRequested) {
                 record.view.status = event.text;
                 this.touch(record);
+                this.recordActivity(record, event.detail ? `${event.text} ${event.detail}` : event.text);
               }
             },
             ...(parentSessionFile ? { parentSessionFile } : {}),
@@ -808,6 +822,61 @@ export class ThreadManager {
       } catch {
         /* UI failure must not affect execution. */
       }
+    }
+  }
+  /** Bounded activity context for the housekeeping summarizer; never affects lifecycle. */
+  private recordActivity(record: Record, line: string): void {
+    const recent = (record.recentActivity ??= []);
+    recent.push(line.slice(0, 600));
+    if (recent.length > RECENT_ACTIVITY_LIMIT) recent.splice(0, recent.length - RECENT_ACTIVITY_LIMIT);
+    if (!this.options.onActivity || this.disposed) return;
+    try {
+      this.options.onActivity({
+        path: record.view.path,
+        type: record.view.type,
+        task: record.view.task,
+        run: record.runId ?? 0,
+        recent: [...recent],
+      });
+    } catch {
+      /* Optional labs feature: never interrupt a runner. */
+    }
+  }
+  /** [labs] Apply a generated one-line summary; false when stale (run changed, settled, paused or gone). */
+  setSummary(path: string, run: number, summary: string): boolean {
+    const record = this.records.get(path);
+    const text = summary.replace(/\s+/g, " ").trim();
+    if (
+      this.disposed ||
+      !record ||
+      !text ||
+      record.runId !== run ||
+      !active(record.view) ||
+      record.pauseRequested ||
+      record.stopRequested
+    )
+      return false;
+    if (record.view.summary === text) return true;
+    record.view.summary = text;
+    // Display-only: a metrics event refreshes UI without rewriting persisted registry/cost state.
+    if (!this.disposed) this.emit({ kind: "metrics", thread: this.view(record) });
+    return true;
+  }
+  /** [labs] Remove one run's summary (stale refresh failed/unavailable); no-op for other runs or none. */
+  clearSummary(path: string, run: number): boolean {
+    const record = this.records.get(path);
+    if (this.disposed || !record || record.runId !== run || record.view.summary === undefined)
+      return false;
+    delete record.view.summary;
+    this.emit({ kind: "metrics", thread: this.view(record) });
+    return true;
+  }
+  /** Drop every generated summary (feature disabled or model changed). */
+  clearSummaries(): void {
+    for (const record of this.records.values()) {
+      if (record.view.summary === undefined) continue;
+      delete record.view.summary;
+      if (!this.disposed) this.emit({ kind: "metrics", thread: this.view(record) });
     }
   }
   private emit(event: ThreadEvent): void {

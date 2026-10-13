@@ -92,6 +92,8 @@ Enable **[labs] Final Recap** in `/agents` to automatically ask the idle main ag
 
 **[labs] Checklist integration** is always listed in `/agents settings` but can only be turned on while a loaded, active [pi-checklist](https://github.com/championswimmer/pi-checklist) ≥3.0.0 has task meta enabled (`/checklist settings meta`). When on and eligible, the main agent's prompt explains tagging tasks with `meta.agent`; in Orchestration mode the main agent must use the checklist. See [Checklist integration](docs/settings.md#labs-checklist-integration-checklistintegration).
 
+Enable **[labs] Housekeeping model** in `/agents settings` and pick a model (from your scoped and other available models) to have it write a one-line summary of what each running agent is doing, shown in `/agents tree` instead of the raw tool-call line. It is off by default, never persisted, and falls back to the normal status whenever it is disabled, unavailable or fails. It sends each agent's task and recent activity to the model you pick and uses extra tokens not counted in cost totals. See [Housekeeping model](docs/settings.md#labs-housekeeping-model-housekeepingenabled-housekeepingmodel).
+
 ## Docs
 
 - [Your own agent](docs/custom-agents.md) — walkthrough for writing an agent type

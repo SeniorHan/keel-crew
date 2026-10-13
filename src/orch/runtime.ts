@@ -148,6 +148,28 @@ async function assertAcceptedSessionFile(
   }
 }
 
+const SNIPPET_KEYS = ["command", "path", "file_path", "filePath", "pattern", "query", "url", "description"];
+/** Short single-line argument hint for housekeeping summaries; never shown verbatim as status. */
+export function toolArgumentSnippet(args: unknown): string | undefined {
+  if (args === null || args === undefined) return undefined;
+  let text: string | undefined;
+  if (typeof args === "string") text = args;
+  else if (typeof args === "object") {
+    const record = args as Record<string, unknown>;
+    const key = SNIPPET_KEYS.find((name) => typeof record[name] === "string");
+    if (key) text = String(record[key]);
+    else {
+      try {
+        text = JSON.stringify(args);
+      } catch {
+        return undefined;
+      }
+    }
+  }
+  const clean = text?.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").replace(/\s+/g, " ").trim();
+  return clean ? clean.slice(0, 160) : undefined;
+}
+
 /** Isolated SDK sessions; configured extension reload is experimental and opt-in. */
 export function createDriverFactory(
   getRootContext: () => ExtensionContext,
@@ -770,8 +792,8 @@ export function createDriverFactory(
     const countedUsage = new WeakSet<object>();
     let finalOutput = "";
     let abortPromise: Promise<void> | undefined;
-    const emit = (kind: "activity" | "error", text: string) =>
-      options.onEvent({ kind, text: text.slice(0, 1000) });
+    const emit = (kind: "activity" | "error", text: string, detail?: string) =>
+      options.onEvent({ kind, text: text.slice(0, 1000), ...(detail ? { detail } : {}) });
     const assistantUsage = (message: AssistantMessage) => {
       const usage = message.usage;
       const input = usage.input + usage.cacheRead + usage.cacheWrite;
@@ -807,7 +829,8 @@ export function createDriverFactory(
     );
     const unsubscribe = session.subscribe((event) => {
       transcript.accept(event);
-      if (event.type === "tool_execution_start") emit("activity", `Tool: ${event.toolName}`);
+      if (event.type === "tool_execution_start")
+        emit("activity", `Tool: ${event.toolName}`, toolArgumentSnippet(event.args));
       if (event.type === "tool_execution_end")
         emit(
           event.isError ? "error" : "activity",

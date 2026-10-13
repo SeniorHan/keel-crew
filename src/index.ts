@@ -14,6 +14,11 @@ import { configureAgents } from "./ui/settings-ui.ts";
 import { AgentNavigationController } from "./ui/status-ui.ts";
 import { AgentNavigationEditor } from "./ui/agent-navigation-editor.ts";
 import { createDriverFactory } from "./orch/runtime.ts";
+import {
+  createHousekeepingCompleter,
+  HousekeepingSummarizer,
+  resolveHousekeepingModel,
+} from "./orch/housekeeping.ts";
 import { createInheritedToolSource } from "./orch/inherited-tools.ts";
 import { subagentPrompt } from "./orch/prompt.ts";
 import { ChecklistMetaMirror, checklistStatus } from "./orch/checklist-integration.ts";
@@ -65,6 +70,35 @@ export default function piSubagent(pi: ExtensionAPI): void {
     agentDir: getAgentDir(),
     includeProject: false,
   }).settings;
+  // [labs] Housekeeping: inert unless opted in, a model is chosen, and it resolves with credentials.
+  const housekeeping = new HousekeepingSummarizer({
+    isEnabled: () =>
+      limits.subagentMode !== "off" &&
+      limits.housekeepingEnabled &&
+      limits.housekeepingModel !== "" &&
+      context !== undefined &&
+      resolveHousekeepingModel(context, limits.housekeepingModel) !== undefined,
+    complete: createHousekeepingCompleter(
+      () => context,
+      () => limits.housekeepingModel,
+    ),
+    apply: (path, run, summary) => manager?.setSummary(path, run, summary) ?? false,
+    clear: (path, run) => void manager?.clearSummary(path, run),
+    onFailure: (message) =>
+      context?.ui.notify(
+        `Housekeeping summaries failed (${message}); showing normal agent status instead.`,
+        "warning",
+      ),
+  });
+  let housekeepingKey = "";
+  /** Settings changed: drop in-flight work and stale summaries so the new choice starts clean. */
+  const syncHousekeeping = () => {
+    const key = `${limits.subagentMode === "off"}|${limits.housekeepingEnabled}|${limits.housekeepingModel}`;
+    if (key === housekeepingKey) return;
+    housekeepingKey = key;
+    housekeeping.cancelAll();
+    manager?.clearSummaries();
+  };
   const loadLimits = (ctx: ExtensionContext) => {
     const loaded = loadManagerSettings({
       cwd: ctx.cwd,
@@ -72,6 +106,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
       includeProject: ctx.isProjectTrusted(),
     });
     limits = loaded.settings;
+    syncHousekeeping();
     refreshCostFooter(ctx);
     return loaded.diagnostics;
   };
@@ -566,6 +601,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
     seedHistory = true,
   ) => {
     cancelSummary();
+    housekeeping.cancelAll();
     const token = ++generation;
     closeNavigation(installEditor);
     navigation = new AgentNavigationController(returnToWidget);
@@ -602,8 +638,18 @@ export default function piSubagent(pi: ExtensionAPI): void {
         const message = error instanceof Error ? error.message : String(error);
         context?.ui.notify(`Subagent ${event.kind} notification failed: ${message}`, "warning");
       },
+      onActivity: (activity) => {
+        if (token === generation) housekeeping.notify(activity);
+      },
       onEvent: (event) => {
         if (token !== generation) return;
+        // Settled agents and explicit progress reports (which replace the summary) cancel pending
+        // housekeeping so an older request cannot reapply stale text; fresh activity reschedules.
+        if (
+          event.kind === "update" ||
+          (event.thread.state !== "starting" && event.thread.state !== "running")
+        )
+          housekeeping.settle(event.thread.path);
         refreshWidget(requireContext());
         if (event.kind !== "metrics") persist();
         if (event.kind === "settled") rollupCost(event.thread);
@@ -669,6 +715,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
   pi.on("session_before_fork", stopWorkingThreads);
   pi.on("session_shutdown", async () => {
     cancelSummary();
+    housekeeping.cancelAll();
     generation++;
     closeNavigation(true);
     await manager?.shutdown();
