@@ -1,5 +1,7 @@
 # Tools and UI
 
+Use [commands](#commands) to manage agents yourself, or let the main agent use the [tools](#model-facing-tools) below. For context inheritance, saved sessions, and resuming work, see [Threads and lifecycle](threads.md).
+
 ## Tool picker
 
 The allow/block tool picker lists session tools flat, except MCP tools named `mcp__<mcp>__<tool>`: those are grouped under one `mcp__<mcp>` row, collapsed by default. The row shows `[x]`, `[ ]` or `[-]` (mixed) and Enter toggles every tool in the group. Right expands the group, Left collapses it (Left on a child also collapses and selects the group). While searching, matching groups are expanded automatically.
@@ -47,14 +49,20 @@ Child progress and completion notifications are retained in the main agent's con
 
 ## Commands
 
-| Command                       | Does                                                                                                                                                                                                                                              |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/agents`, `/agents settings` | [Settings](settings.md) dialog. **Agent definitions** jumps to the type editor.                                                                                                                                                                   |
-| `/agents types`               | Type browser and editor — see [custom agents](custom-agents.md#editing-in-the-tui)                                                                                                                                                                |
-| `/agents tree [path]`         | Live full tree; optional path preselects.                                                                                                                                                                                                         |
-| `/agents import`              | [Import picker](importing-agents.md)                                                                                                                                                                                                              |
-| `/agents reload`              | Reload definitions and settings; show diagnostics                                                                                                                                                                                                 |
-| `/agents reap`                | Show the eligible count and a Confirm/Cancel dialog, then forget completed agents and free retained-thread slots. Active parents and ancestors of retained threads are preserved; reaped agents cannot be resumed. Session files are not deleted. |
+| Command                       | Does |
+| ----------------------------- | ---- |
+| `/agents`, `/agents settings` | Open [settings](settings.md). **Agent definitions** opens the type editor. |
+| `/agents types`               | Browse and edit [agent types](custom-agents.md#editing-in-the-tui). |
+| `/agents tree [path]`         | Open the live tree; an optional path selects an agent. |
+| `/agents fork:<agent> <task>`  | Start an agent with your current conversation as context. |
+| `/agents fresh:<agent> <task>` | Start an agent without inherited conversation context. |
+| `/agents import`              | Open the [import picker](importing-agents.md). |
+| `/agents reload`              | Reload definitions and settings; show diagnostics. |
+| `/agents reap`                | Confirm removal of eligible completed agents from the retained tree. |
+
+Both `fork:` and `fresh:` autocomplete available agent types and start detached agents: you can keep working in the main conversation while they run.
+
+`reap` shows how many agents are eligible before asking you to confirm. It frees retained-thread slots but preserves active parents and ancestors of retained threads. Reaped agents cannot be resumed; their session files are not deleted.
 
 ### `/agents tree` keys
 

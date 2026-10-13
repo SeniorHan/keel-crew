@@ -102,6 +102,8 @@ Both status modes use the same public Pi status API: third-party footers may als
 
 **Icon** (`costIcon`) offers `money` (default), `coins`, or `wallet`. With **[labs] Nerd Font icons** off, these appear as 💵, 🪙, or 👛. With it on, the picker and output use corresponding Nerd Font glyphs instead. The semantic choice survives toggling font mode.
 
+**Cost accounting.** Agent rows show estimated USD cost, including cache reads and writes, when the provider reports it. Running costs stay in those rows until the agent completes, pauses, stops, or fails; then only newly incurred costs are added to the total. Resuming, reloading, navigating branches, or reaping agents does not lose those totals, and nested agents' costs are counted once. These totals do not change Pi's native session statistics.
+
 See [Subagent dollar totals in pi-footer](pi-footer.md) for step-by-step setup and copy-paste widget configuration, status-key, and event snippets.
 
 ## [labs] Enable subagent extensions (`subagentExtensions`)
