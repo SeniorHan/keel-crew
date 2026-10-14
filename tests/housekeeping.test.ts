@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import {
   buildHousekeepingRequest,
   cleanSummary,
@@ -374,10 +375,13 @@ function fakeContext(options: {
   scoped?: ReturnType<typeof model>[];
   authed?: (m: { provider: string; id: string }) => boolean;
   stream?: (...args: unknown[]) => { result(): Promise<unknown> };
+  sessionManager?: SessionManager;
 }) {
   const available = options.available ?? [];
   const calls: unknown[][] = [];
+  const sessionManager = options.sessionManager ?? SessionManager.inMemory();
   const ctx = {
+    sessionManager,
     scopedModels: (options.scoped ?? []).map((m) => ({ model: m })),
     modelRegistry: {
       getAvailable: () => available,
@@ -390,7 +394,7 @@ function fakeContext(options: {
       },
     },
   } as unknown as ExtensionContext;
-  return { ctx, calls };
+  return { ctx, calls, sessionManager };
 }
 
 test("candidates are every available model with scope flagged; resolution fails closed", () => {
@@ -513,6 +517,195 @@ test("completer rejects without a session, unavailable model, or provider error/
       stopReason === "error" ? /429 slow down/ : /aborted/,
     );
   }
+});
+
+// --- usage accounting -----------------------------------------------------------------------
+
+const reportedUsage: Usage = {
+  input: 123,
+  output: 10,
+  cacheRead: 20,
+  cacheWrite: 0,
+  reasoning: 2,
+  totalTokens: 153,
+  cost: { input: 0.01, output: 0.02, cacheRead: 0.001, cacheWrite: 0, total: 0.031 },
+};
+const billableResponse = (patch: Partial<AssistantMessage> = {}): AssistantMessage => ({
+  role: "assistant",
+  api: "openai-completions",
+  provider: "response-provider",
+  model: "response-model",
+  responseModel: "concrete-response-model",
+  timestamp: 1,
+  content: [{ type: "text", text: "Reading files" }],
+  stopReason: "stop",
+  usage: reportedUsage,
+  ...patch,
+});
+
+for (const stopReason of ["stop", "error", "aborted", "empty"] as const) {
+  test(`completer records ${stopReason} responses once before output validation`, async () => {
+    const { ctx, sessionManager } = fakeContext({
+      available: [model("selected", "model")],
+      stream: () => ({
+        result: async () =>
+          billableResponse({
+            ...(stopReason === "empty" ? { content: [] } : { stopReason }),
+            errorMessage: "provider failed",
+          }),
+      }),
+    });
+    let refreshed = 0;
+    const complete = createHousekeepingCompleter(
+      () => ctx,
+      () => "selected/model",
+      (current) => {
+        assert.equal(current, ctx);
+        assert.equal(sessionManager.getEntries().length, 1);
+        refreshed++;
+      },
+    );
+    const result = complete(
+      { system: "private system prompt", user: "private task and arguments" },
+      new AbortController().signal,
+    );
+    if (stopReason === "error" || stopReason === "aborted")
+      await assert.rejects(result, /provider failed/);
+    else assert.equal(await result, stopReason === "empty" ? "" : "Reading files");
+    const entries = sessionManager.getEntries();
+    assert.equal(entries.length, 1);
+    const entry = entries[0]!;
+    assert.equal(entry.type, "usage");
+    if (entry.type !== "usage") assert.fail("expected native usage entry");
+    assert.deepEqual(entry.usage, reportedUsage);
+    assert.equal(entry.model, "concrete-response-model");
+    assert.equal(entry.provider, "response-provider");
+    assert.equal(entry.kind, "subagent-manager");
+    assert.doesNotMatch(JSON.stringify(entries), /private|Reading files|provider failed/);
+    assert.equal(refreshed, 1);
+  });
+}
+
+test("provider rejection before a response does not fabricate usage", async () => {
+  const { ctx, sessionManager } = fakeContext({
+    available: [model("a", "b")],
+    stream: () => ({
+      result: async () => {
+        throw new Error("connection failed");
+      },
+    }),
+  });
+  await assert.rejects(
+    createHousekeepingCompleter(
+      () => ctx,
+      () => "a/b",
+    )({ system: "", user: "" }, new AbortController().signal),
+    /connection failed/,
+  );
+  assert.deepEqual(sessionManager.getEntries(), []);
+});
+
+test("late cancelled responses charge the captured original session, not its replacement or UI", async () => {
+  let resolve!: (response: AssistantMessage) => void;
+  const { ctx, sessionManager } = fakeContext({
+    available: [model("a", "b")],
+    stream: () => ({
+      result: () =>
+        new Promise<AssistantMessage>((r) => {
+          resolve = r;
+        }),
+    }),
+  });
+  let valid = true;
+  const originatingContext = {
+    ...ctx,
+    get sessionManager() {
+      if (!valid) throw new Error("old extension context invalidated");
+      return sessionManager;
+    },
+  } as ExtensionContext;
+  let current = originatingContext;
+  const replacement = fakeContext({ available: [model("a", "b")] });
+  const controller = new AbortController();
+  let refreshed = 0;
+  const complete = createHousekeepingCompleter(
+    () => current,
+    () => "a/b",
+    () => {
+      refreshed++;
+    },
+  );
+  const pending = complete({ system: "", user: "" }, controller.signal);
+  current = replacement.ctx;
+  valid = false;
+  controller.abort();
+  resolve(billableResponse({ stopReason: "aborted" }));
+  await assert.rejects(pending, /aborted/);
+  assert.equal(sessionManager.getEntries().length, 1);
+  assert.deepEqual(replacement.sessionManager.getEntries(), []);
+  assert.equal(refreshed, 0, "late usage must not refresh the replacement session UI");
+});
+
+test("scheduler drops stale display results while the completer retains their usage", async (t) => {
+  let resolve!: (response: AssistantMessage) => void;
+  const { ctx, sessionManager } = fakeContext({
+    available: [model("a", "b")],
+    stream: () => ({
+      result: () =>
+        new Promise<AssistantMessage>((r) => {
+          resolve = r;
+        }),
+    }),
+  });
+  const { summarizer, applied } = harness(t, {
+    complete: createHousekeepingCompleter(
+      () => ctx,
+      () => "a/b",
+    ),
+  });
+  summarizer.notify(activity("/root/a", 1, "task"));
+  t.mock.timers.tick(1500);
+  await flush();
+  summarizer.settle("/root/a");
+  resolve(billableResponse());
+  await flush();
+  assert.deepEqual(applied, []);
+  assert.equal(sessionManager.getEntries().length, 1);
+});
+
+test("accounting and cost-refresh failures do not break successful summaries", async (t) => {
+  const failedNative = SessionManager.inMemory();
+  t.mock.method(failedNative, "appendUsage", () => {
+    throw new Error("native write failed");
+  });
+  const first = fakeContext({
+    available: [model("a", "b")],
+    sessionManager: failedNative,
+    stream: () => ({ result: async () => billableResponse() }),
+  });
+  assert.equal(
+    await createHousekeepingCompleter(
+      () => first.ctx,
+      () => "a/b",
+    )({ system: "", user: "" }, new AbortController().signal),
+    "Reading files",
+  );
+  assert.deepEqual(failedNative.getEntries(), []);
+  const second = fakeContext({
+    available: [model("a", "b")],
+    stream: () => ({ result: async () => billableResponse() }),
+  });
+  assert.equal(
+    await createHousekeepingCompleter(
+      () => second.ctx,
+      () => "a/b",
+      () => {
+        throw new Error("UI gone");
+      },
+    )({ system: "", user: "" }, new AbortController().signal),
+    "Reading files",
+  );
+  assert.equal(second.sessionManager.getEntries().length, 1, "native survives UI failure");
 });
 
 // --- manager integration --------------------------------------------------------------------

@@ -165,7 +165,7 @@ Pick the model in the dialog's searchable picker. It lists **scoped models first
 
 **Throttling.** Each agent has at most one housekeeping call in flight and at most one every 10 seconds (activity during a call is coalesced into the next one, after a 1.5 s quiet period), with exponential backoff after failures. At most two calls run at once across all agents, each times out after 20 seconds, and a call is cancelled — and a late answer discarded — when the agent settles or restarts, the toggle or model changes, or the session changes.
 
-**Privacy and cost.** The housekeeping model sees each agent's task and recent activity text, including command and path snippets, so choose a provider you are comfortable sending that to. Calls use extra tokens at that model's price and are **not** included in the subagent cost total or the main session's cost.
+**Privacy and cost.** The housekeeping model sees each agent's task and recent activity text, including command and path snippets, so choose a provider you are comfortable sending that to. Calls use extra tokens at that model's price. Reported usage (including failed, cancelled, or discarded answers) is recorded in the main session as native `usage` entries, contributing to Pi's session totals and the **Total** cost display, but not the **Subagents** cost total. Extensions such as pi-stats display the actual response model as `provider/model (subagent-manager)`. These accounting entries contain no task, prompt, tool arguments, or summary text and do not enter the model's conversation context.
 
 ## Model Picking (`modelSelection`)
 
