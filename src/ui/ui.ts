@@ -42,7 +42,7 @@ import { getModelPreferences } from "../prefs/models.ts";
 import type { LoaderStyle, WidgetMode } from "../prefs/settings.ts";
 import { AGENT_PROGRESS_INTERVAL, agentProgressIcon, isAgentLoaderGlyph } from "./agent-loader.ts";
 export { AGENT_PROGRESS_INTERVAL, agentProgressIcon } from "./agent-loader.ts";
-import { buildStatusTree, lastStarted, type StatusRow } from "./thread-tree.ts";
+import { buildStatusTree, lastStarted, threadActivity, type StatusRow } from "./thread-tree.ts";
 import { THINKING_LEVELS, type AgentType, type ThreadService, type ThreadView } from "../types.ts";
 
 export type ThreadController = Pick<
@@ -200,7 +200,7 @@ export function renderThreads(
     );
     const path = agentPath(thread.path, thread.color, theme);
     const state = theme.fg(stateColor, `[${sanitizeText(thread.state)}]`);
-    const left = `${badge} ${path} ${state} ${sanitizeText(thread.status || thread.task)}`;
+    const left = `${badge} ${path} ${state} ${sanitizeText(threadActivity(thread))}`;
     return fitLine(left, theme.fg("muted", threadMetrics(thread)), Math.max(0, width));
   });
   if (visible.length > limit) {
@@ -277,7 +277,7 @@ function agentLine(
     nerdFontIcons,
     agentProgressIcon(thread, nerdFontIcons, Date.now(), animate, loaderStyle),
   );
-  const left = `${row.prefix}${badge} ${agentPath(thread.path, thread.color, theme)} ${theme.fg(agentStateColor(thread.state), `[${sanitizeText(thread.state)}]`)} ${sanitizeText(thread.task)}`;
+  const left = `${row.prefix}${badge} ${agentPath(thread.path, thread.color, theme)} ${theme.fg(agentStateColor(thread.state), `[${sanitizeText(thread.state)}]`)} ${sanitizeText(threadActivity(thread, thread.task))}`;
   return fitLine(left, theme.fg("muted", threadMetrics(thread)), width);
 }
 

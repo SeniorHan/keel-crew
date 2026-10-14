@@ -111,7 +111,7 @@ Once the main turn has ended and no subagents are starting or running, either mo
 
 In full mode:
 
-- One row per agent: colored type pill, path, state, task, active time, input `↑` / output `↓` tokens.
+- One row per agent: colored type pill, path, state, task, active time, input `↑` / output `↓` tokens. With **[labs] Housekeeping model** enabled, a nonblank summary replaces the task while the agent is starting/running; otherwise the task remains.
 - Activity and lifecycle messages (such as `Completed; session retained`) are omitted to save space; detailed status remains available in `/agents tree` and `agent_status`.
 - Agents are ordered newest-started first (spawn or resume); a branch ranks by its most recently started agent. The most recently started agents are preferred when previews overflow. Overflow is counted, not listed.
 - Time freezes while paused and resumes on continue.
