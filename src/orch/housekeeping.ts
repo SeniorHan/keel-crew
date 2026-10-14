@@ -3,6 +3,10 @@ import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ThreadActivity } from "../types.ts";
 import { modelIdentity } from "../prefs/models.ts";
+import {
+  captureHousekeepingUsageSession,
+  reportHousekeepingUsage,
+} from "./housekeeping-usage.ts";
 
 /**
  * [labs] Housekeeping: a user-chosen model names each active agent's current work in one line.
@@ -305,6 +309,7 @@ export function resolveHousekeepingModel(
 export function createHousekeepingCompleter(
   getContext: () => ExtensionContext | undefined,
   getModelIdentity: () => string,
+  onUsageRecorded?: (ctx: ExtensionContext) => void,
 ): HousekeepingOptions["complete"] {
   return async (request, signal) => {
     const ctx = getContext();
@@ -312,6 +317,7 @@ export function createHousekeepingCompleter(
     const identity = getModelIdentity();
     const model = resolveHousekeepingModel(ctx, identity);
     if (!model) throw new Error(`Housekeeping model ${identity || "(none)"} is unavailable`);
+    const session = captureHousekeepingUsageSession(ctx);
     const response = await ctx.modelRegistry
       .streamSimple(
         model,
@@ -328,6 +334,13 @@ export function createHousekeepingCompleter(
         { signal, maxTokens: 96, cacheRetention: "none" },
       )
       .result();
+    // Account reported usage before checking whether this answer is usable or still current.
+    const entry = reportHousekeepingUsage(session, response);
+    try {
+      if (entry && getContext() === ctx) onUsageRecorded?.(ctx);
+    } catch {
+      /* A stale context or UI failure must not turn a successful summary into a failure. */
+    }
     if (response.stopReason === "error" || response.stopReason === "aborted")
       throw new Error(response.errorMessage || `Housekeeping model ${response.stopReason}`);
     return response.content

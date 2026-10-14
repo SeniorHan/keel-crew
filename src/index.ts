@@ -81,6 +81,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
     complete: createHousekeepingCompleter(
       () => context,
       () => limits.housekeepingModel,
+      refreshCostFooter,
     ),
     apply: (path, run, summary) => manager?.setSummary(path, run, summary) ?? false,
     clear: (path, run) => void manager?.clearSummary(path, run),
