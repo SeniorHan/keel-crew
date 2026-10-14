@@ -583,7 +583,11 @@ export default function piSubagent(pi: ExtensionAPI): void {
       limits.checklistIntegration && limits.subagentMode !== "off" && currentChecklistStatus(ctx).eligible,
     );
     if (!prompt) return;
-    if (limits.subagentMode === "opportunistic" && event.prompt.startsWith(IMPORT_REQUEST_PREFIX)) {
+    if (
+      limits.subagentMode === "opportunistic" &&
+      "prompt" in event &&
+      event.prompt.startsWith(IMPORT_REQUEST_PREFIX)
+    ) {
       try {
         markImportOffered(getAgentDir());
       } catch (error) {
