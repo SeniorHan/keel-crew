@@ -20,7 +20,7 @@ import {
 import { configureAgents } from "../src/ui/settings-ui.ts";
 import { HousekeepingModelPickerComponent } from "../src/ui/model-picker.ts";
 import { StatusDialog } from "../src/ui/status-ui.ts";
-import { renderAgentTree } from "../src/ui/ui.ts";
+import { renderAgentTree, renderThreads, updateWidget } from "../src/ui/ui.ts";
 import { threadActivity } from "../src/ui/thread-tree.ts";
 import type { DialogMenu, DialogRow } from "../src/ui/dialog.ts";
 import type { ThreadService, ThreadView } from "../src/types.ts";
@@ -86,7 +86,7 @@ test("a summary replaces raw tool status only while the agent is active", () => 
   );
 });
 
-test("the tree viewer shows the one-line summary instead of the tool call", () => {
+test("the tree viewer and status widget both show the one-line summary", () => {
   const threads = [
     thread("/root/a", { summary: "Running the test suite" }),
     thread("/root/b", {
@@ -117,21 +117,107 @@ test("the tree viewer shows the one-line summary instead of the tool call", () =
     "only /root/c shows raw status",
   );
 
-  // The compact widget shows each agent's task, never tool-call status; it is unaffected.
-  const widget = text(renderAgentTree(threads, 110, renderTheme as never));
-  assert.doesNotMatch(widget, /Running the test suite|Tool: bash/);
+  const widget = text(renderAgentTree(threads, 110, renderTheme));
+  assert.match(widget, /Running the test suite/);
+  assert.doesNotMatch(widget, /Hidden after completion|Tool: bash|Completed; session retained/);
+  assert.equal(
+    widget.split("\n").filter((line) => line.includes("Investigate flaky test")).length,
+    2,
+    "completed agents and agents without a summary keep their task label",
+  );
 });
 
-test("summary text is sanitized by the existing renderers", () => {
-  const threads = [thread("/root/a", { summary: "Edit\x1b[31m red \x07file" })];
+test("summary selection keeps each view's fallback for missing, blank, or inactive summaries", () => {
+  const cases: Partial<ThreadView>[] = [
+    { state: "running", summary: "  Running the test suite  " },
+    { state: "starting", summary: "  Warming up  " },
+    { summary: undefined },
+    { summary: "" },
+    { summary: " \t\n " },
+    { summary: undefined, status: "" },
+    ...(["completed", "failed", "paused", "stopped"] as const).map((state) => ({
+      state,
+      summary: "stale label",
+    })),
+  ];
+  for (const patch of cases) {
+    const view = thread("/root/a", patch);
+    const active = view.state === "starting" || view.state === "running";
+    const summary = active ? view.summary?.trim() : undefined;
+    const activity = summary || view.status || view.task;
+    const title = summary || view.task;
+    const dialog = new StatusDialog(
+      { requestRender() {}, terminal: { rows: 24 } },
+      renderTheme,
+      { list: () => [view], get: () => view } as unknown as ThreadService,
+      () => {},
+    );
+    assert.ok(text(dialog.render(110)).includes(activity), JSON.stringify(patch));
+    assert.ok(text(renderThreads([view], 110, renderTheme)).includes(activity));
+    const widget = text(renderAgentTree([view], 110, renderTheme));
+    assert.ok(widget.includes(title), JSON.stringify(patch));
+    assert.doesNotMatch(widget, /Tool: bash|stale label/);
+  }
+});
+
+test("summary text stays sanitized and width-bounded in the tree and status renderers", () => {
+  const threads = [
+    thread("/root/a", {
+      summary: "Edit\x1b[31m red \x07file " + "界".repeat(80),
+      inputTokens: 120,
+      outputTokens: 45,
+    }),
+  ];
   const dialog = new StatusDialog(
     { requestRender() {}, terminal: { rows: 24 } },
     renderTheme,
     { list: () => threads, get: () => threads[0]! } as unknown as ThreadService,
     () => {},
   );
-  const out = text(dialog.render(100));
-  assert.ok(!out.includes("\x1b") && !out.includes("\x07"));
+  for (const width of [1, 20, 40, 100]) {
+    for (const lines of [
+      dialog.render(width),
+      renderAgentTree(threads, width, renderTheme),
+      renderThreads(threads, width, renderTheme),
+    ]) {
+      assert.ok(!/[\x00-\x1f\x7f-\x9f]/.test(text(lines).replaceAll("\n", "")));
+      assert.ok(lines.every((line) => visibleWidth(line) <= width));
+      if (width === 100) {
+        assert.match(text(lines), /Edit red/);
+        assert.match(text(lines), /↑120 ↓45/);
+      }
+    }
+  }
+});
+
+test("full TUI and RPC widgets show fresh summaries and return to the task when cleared", () => {
+  for (const mode of ["tui", "rpc"] as const) {
+    let rendered: string[] = [];
+    const ctx = {
+      hasUI: true,
+      mode,
+      ui: {
+        theme: renderTheme,
+        setWidget(_key: string, value: unknown) {
+          if (typeof value === "function") {
+            const component = value({ requestRender() {} });
+            try {
+              rendered = component.render(110);
+            } finally {
+              component.dispose();
+            }
+          } else rendered = value as string[];
+        },
+      },
+    } as unknown as ExtensionCommandContext;
+    const view = thread("/root/a", { summary: "Running the test suite" });
+    updateWidget(ctx, [view]);
+    assert.match(text(rendered), /Running the test suite/);
+    assert.doesNotMatch(text(rendered), /Investigate flaky test|Tool: bash/);
+    updateWidget(ctx, [{ ...view, summary: undefined }]);
+    assert.match(text(rendered), /Investigate flaky test/);
+    assert.doesNotMatch(text(rendered), /Running the test suite|Tool: bash/);
+  }
 });
 
 // --- model picker ---------------------------------------------------------------------------

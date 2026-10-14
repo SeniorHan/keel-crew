@@ -143,7 +143,7 @@ The scheduler retains pending notifications while the main agent is busy (includ
 
 ## [labs] Housekeeping model (`housekeepingEnabled`, `housekeepingModel`)
 
-Experimental, **off by default**. A small model of your choice writes a **one-line summary of what each running agent is doing right now**, shown in the fullscreen tree (`/agents tree`) in place of the raw tool-call line (for example `Running the auth unit tests` instead of `Tool: bash`).
+Experimental, **off by default**. A small model of your choice writes a **one-line summary of what each running agent is doing right now**, shown in the fullscreen tree (`/agents tree`) in place of the raw tool-call line (for example `Running the auth unit tests` instead of `Tool: bash`) and in the full status widget in place of the task.
 
 Open **[labs] Housekeeping model** in `/agents settings` and set two things, then save with **Ctrl+S**:
 
@@ -157,7 +157,7 @@ Pick the model in the dialog's searchable picker. It lists **scoped models first
 **What it does**
 
 - After an agent's tool or text activity, the agent's task and its last few activity lines (tool names, a short single-line argument snippet such as a command or path, and assistant text) are sent to the housekeeping model, which replies with a single line of at most 80 characters.
-- The summary is shown only while the agent is **starting or running**. Completed, failed, paused and stopped agents show their real status as before. The compact widget (which shows each agent's task) and the live agent view are unchanged. The original status stays available on the thread (`agent_status` returns both `status` and `summary`).
+- A nonblank summary is shown only while the agent is **starting or running**. Without one, or after completion, failure, pause or stop, the tree shows the original status (or task if empty) and the full status widget shows the task as before. The minimal count-only widget and live agent view are unchanged. The original status stays available on the thread (`agent_status` returns both `status` and `summary`).
 - An explicit `agent_update` progress message or pause reason replaces the summary until fresh activity arrives.
 - Summaries are display-only and live-only: they are never written to the session registry, restored after a reload, or counted in cost totals.
 

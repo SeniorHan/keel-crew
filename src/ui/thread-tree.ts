@@ -3,13 +3,16 @@ import type { ThreadView } from "../types.ts";
 const ROOT = "/root";
 
 /**
- * Activity line for tree rows and the widget. A [labs] housekeeping summary replaces raw
- * tool-call status only while the agent is active; otherwise the original status/task shows.
+ * A [labs] housekeeping summary is shown only while the agent is active.
+ * Detailed rows fall back to status/task; the compact widget supplies its task-only fallback.
  */
-export function threadActivity(thread: ThreadView): string {
+export function threadActivity(
+  thread: ThreadView,
+  fallback = thread.status || thread.task,
+): string {
   const active = thread.state === "starting" || thread.state === "running";
   const summary = typeof thread.summary === "string" ? thread.summary.trim() : "";
-  return (active && summary) || thread.status || thread.task;
+  return (active && summary) || fallback;
 }
 
 export interface StatusRow {
