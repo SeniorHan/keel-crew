@@ -418,7 +418,9 @@ test("tree → full also leaves a session collapse that was set before the tree 
   }, { threads });
 });
 
-test("minimal setting walks tree ← minimal directly and never expands", async () => {
+test("minimal setting walks tree ← minimal directly and never expands", async (t) => {
+  // Compare navigation state without racing the live loader's animation clock.
+  t.mock.timers.enable({ apis: ["Date"], now: 0 });
   const threads = [thread("running")];
   await fixture(async ({ editor, widget, driver }) => {
     const main = editor()!;
@@ -444,7 +446,9 @@ test("minimal setting walks tree ← minimal directly and never expands", async 
   }, { threads, widgetMode: "minimal" });
 });
 
-test("Right can collapse settled previews, but is harmless with no agents or minimal settings", async () => {
+test("Right can collapse settled previews, but is harmless with no agents or minimal settings", async (t) => {
+  // Exact widget comparisons should not depend on the current animation frame.
+  t.mock.timers.enable({ apis: ["Date"], now: 0 });
   await fixture(async ({ editor, widget }) => {
     assert.ok(widget().length > 1);
     editor()!.handleInput("\x1b[C");
