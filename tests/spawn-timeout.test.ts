@@ -157,3 +157,65 @@ test("steer with message and timeoutMs steers and re-arms", async (t) => {
   gates.forEach((g) => g());
   await manager.shutdown();
 });
+
+test("steering and timer-only rearming leave a running foreground spawn foreground", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { manager, events, gates, timeouts, flush } = setup();
+  try {
+    const completion = manager.spawn("/root", { path: "fg", type: "w", task: "task" });
+    await flush();
+    assert.equal(manager.outstandingAsync(), 0);
+    await manager.steer("/root", "fg", "queued steering");
+    await manager.steer("/root", "fg", undefined, 30_000);
+    assert.equal(manager.outstandingAsync(), 0, "neither operation detaches the current run");
+    t.mock.timers.tick(30_000);
+    assert.equal(timeouts().length, 1, "report-only timer still reports");
+    assert.equal(manager.get("fg").state, "running");
+    gates[0]!();
+    await completion;
+    const settled = events.filter(
+      (event): event is Extract<ThreadEvent, { kind: "settled" }> => event.kind === "settled",
+    );
+    assert.equal(settled.length, 1);
+    assert.equal(settled[0]!.async, false);
+  } finally {
+    await manager.shutdown();
+  }
+});
+
+for (const state of ["completed", "paused", "failed", "stopped"] as const) {
+  test(`resuming a restored ${state} thread marks the new run detached`, async () => {
+    const { manager, events, gates, flush } = setup();
+    try {
+      manager.restore([
+        {
+          view: {
+            path: "/root/retained",
+            parent: "/root",
+            owner: "/root",
+            type: "w",
+            state,
+            task: "task",
+            status: "Retained",
+            createdAt: 0,
+          },
+          definition: { name: "w", description: "test", systemPrompt: "test" },
+          inherited: [],
+        },
+      ]);
+      await manager.steer("/root", "retained", "resume");
+      assert.equal(manager.outstandingAsync(), 1, "new run immediately blocks premature recap");
+      await flush();
+      gates[0]!();
+      await manager.wait("/root", "retained");
+      assert.equal(manager.outstandingAsync(), 0);
+      const settled = events.filter(
+        (event): event is Extract<ThreadEvent, { kind: "settled" }> => event.kind === "settled",
+      );
+      assert.equal(settled.length, 1);
+      assert.equal(settled[0]!.async, true);
+    } finally {
+      await manager.shutdown();
+    }
+  });
+}

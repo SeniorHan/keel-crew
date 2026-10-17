@@ -36,7 +36,7 @@ interface Record {
   liveInputTokens?: number;
   liveOutputTokens?: number;
   liveCostUsd?: number;
-  /** Detached (spawned with wait:false): completion is reported as an event. */
+  /** Detached (spawned with wait:false or resumed): completion is reported as an event. */
   async?: boolean;
   timeoutTimer?: ReturnType<typeof setTimeout>;
   pauseRequested: boolean;
@@ -414,6 +414,8 @@ export class ThreadManager {
         return rearm();
       }
       this.assertCapacity();
+      // Resumes return immediately, regardless of the original spawn mode or restored metadata.
+      record.async = true;
       this.start(record, message);
       return rearm();
     }

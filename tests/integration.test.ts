@@ -67,13 +67,14 @@ test(
         onRequest(request) {
           const isChild =
             request.path === "/root/worker" && request.system.includes("ONLY OFFLINE CHILD");
-          if (!isChild) unexpectedCalls++;
+          if (request.path !== null && !isChild) unexpectedCalls++;
           return isChild && request.pathCall === 1
             ? toolUse("pause-1", "agent_pause", { reason: "Need parent input" })
             : answer(`child answer ${request.pathCall}`);
         },
       },
       async ({ directory, cwd, errors, requests, open, close, tool }) => {
+        const childRequests = () => requests.filter((request) => request.path !== null);
         const root = SessionManager.create(cwd, path.join(directory, "parents"));
         root.appendMessage({
           role: "user",
@@ -126,10 +127,10 @@ test(
         assert.ok(completed.elapsedMs! >= paused.elapsedMs!);
         assert.equal(completed.sessionFile, childFile);
         assert.ok(
-          requests[1].messagesText.includes("pause-1"),
+          childRequests()[1].messagesText.includes("pause-1"),
           "resume retains the previous tool result",
         );
-        assert.ok(requests[1].messagesText.includes("Resume paused child"));
+        assert.ok(childRequests()[1].messagesText.includes("Resume paused child"));
         await close(session);
 
         const again = SessionManager.open(parentFile);
@@ -146,9 +147,9 @@ test(
         assert.equal(continued.state, "completed");
         assert.equal(continued.output, "child answer 3");
         assert.equal(continued.sessionFile, childFile);
-        assert.ok(requests[2].messagesText.includes("child answer 2"));
+        assert.ok(childRequests()[2].messagesText.includes("child answer 2"));
         await new Promise((resolve) => setImmediate(resolve));
-        assert.equal(requests.length, 3, "notifications never auto-trigger the parent model");
+        assert.equal(childRequests().length, 3, "only resumed child turns add child provider calls");
         assert.equal(unexpectedCalls, 0);
         assert.equal(registry(again).threads[0].view.sessionFile, childFile);
         await close(session);
@@ -177,7 +178,7 @@ test(
           registry(SessionManager.open(parentFile)).threads[0].view.sessionFile,
           childFile,
         );
-        assert.equal(requests.length, 3);
+        assert.equal(childRequests().length, 3);
         assert.deepEqual(errors, []);
       },
     );
@@ -367,6 +368,7 @@ test(
       {
         agentFiles: { offline: offlineAgent },
         onRequest(request) {
+          if (request.path === null) return answer("Root handled child completion");
           assert.equal(request.path, CHILD_PATH);
           const text = replies.get(request.pathCall);
           assert.ok(text, `unexpected request call ${request.pathCall}`);
@@ -374,6 +376,7 @@ test(
         },
       },
       async ({ directory, cwd, errors, requests, open, close, tool }) => {
+        const childRequests = () => requests.filter((request) => request.path !== null);
         const root = SessionManager.create(cwd, path.join(directory, "parents"));
         root.appendMessage({ role: "user", content: ROOT_SEED, timestamp: Date.now() });
         root.appendCustomEntry(ROOT_MAILBOX_ENTRY, {
@@ -440,7 +443,11 @@ test(
 
         const navigatedA = await session.navigateTree(checkpointA, { summarize: false });
         assert.equal(navigatedA.cancelled, false);
-        assert.equal(requests.length, 2, "restoring an older checkpoint stays offline");
+        assert.equal(
+          childRequests().length,
+          2,
+          "restoring an older checkpoint does not prompt children",
+        );
         const restoredA = await tool<ThreadView>(session, "agent_status", { path: CHILD_PATH });
         assert.equal(restoredA.state, "completed");
         assert.equal(restoredA.output, "answer A");
@@ -454,12 +461,20 @@ test(
         const third = await tool<ThreadView>(session, "agent_wait", { path: CHILD_PATH });
         assert.equal(third.state, "completed");
         assert.equal(third.output, "answer C");
-        assert.equal(requests.length, 3);
-        assertMarkers(requests[2].messagesText, [ROOT_SEED, "answer A", "answer C"], ["answer B"]);
+        assert.equal(childRequests().length, 3);
+        assertMarkers(
+          childRequests()[2].messagesText,
+          [ROOT_SEED, "answer A", "answer C"],
+          ["answer B"],
+        );
 
         const navigatedB = await session.navigateTree(checkpointB, { summarize: false });
         assert.equal(navigatedB.cancelled, false);
-        assert.equal(requests.length, 3, "restoring the newer checkpoint also stays offline");
+        assert.equal(
+          childRequests().length,
+          3,
+          "restoring the newer checkpoint does not prompt children",
+        );
         const restoredB = await tool<ThreadView>(session, "agent_status", { path: CHILD_PATH });
         assert.equal(restoredB.state, "completed");
         assert.equal(restoredB.output, "answer B");
