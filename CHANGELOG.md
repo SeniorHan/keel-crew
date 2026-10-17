@@ -16,6 +16,18 @@ Generated from version tags and merged GitHub pull requests. Do not edit this fi
 
 **Full Changelog**: https://github.com/championswimmer/pi-subagent-manager/compare/v0.28.1...v0.29.0
 
+#### [v0.29.3](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.29.3) — Patch release (2026-10-17)
+
+<!-- Release notes generated using configuration in .github/release.yml at v0.29.3 -->
+
+##### What's Changed
+###### Merged pull requests
+* fix: stabilize animated widget navigation tests by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/67
+* fix: wake parent sessions when retained agents resume by @championswimmer in https://github.com/championswimmer/pi-subagent-manager/pull/68
+
+
+**Full Changelog**: https://github.com/championswimmer/pi-subagent-manager/compare/v0.29.2...v0.29.3
+
 #### [v0.29.2](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.29.2) — Patch release (2026-10-14)
 
 <!-- Release notes generated using configuration in .github/release.yml at v0.29.2 -->
