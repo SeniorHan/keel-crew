@@ -46,11 +46,13 @@ test(
       },
       async ({ directory, cwd, open, tool, requests, errors }) => {
         const session = await open(SessionManager.create(cwd));
+        // Resumed agents also wake the root; model-selection assertions concern child calls only.
+        const childRequests = () => requests.filter((request) => request.path !== null);
         const spawn = (path: string, type = "ordered") =>
           tool<ThreadView>(session, "agent_spawn", { path, type, task: "Work" });
         assert.equal((await spawn("first")).state, "completed");
         assert.equal(
-          requests.at(-1)?.modelId,
+          childRequests().at(-1)?.modelId,
           "offline-alt",
           "off uses the first available preference even outside scope",
         );
@@ -60,7 +62,7 @@ test(
         await session.prompt("/agents reload");
         assert.equal((await spawn("second")).state, "completed");
         assert.equal(
-          requests.at(-1)?.modelId,
+          childRequests().at(-1)?.modelId,
           "offline",
           "on skips the first, unscoped preference",
         );
@@ -70,20 +72,20 @@ test(
           "completed",
         );
         assert.equal(
-          requests.at(-1)?.modelId,
+          childRequests().at(-1)?.modelId,
           "offline",
           "retained agent observes re-enabled filtering",
         );
-        const count = requests.length;
+        const count = childRequests().length;
         const rejected = await spawn("rejected", "unscoped");
         assert.equal(rejected.state, "failed");
         assert.match(rejected.error ?? "", /\/scoped-models/);
-        assert.equal(requests.length, count, "no request for rejected preferences");
+        assert.equal(childRequests().length, count, "no request for rejected preferences");
 
         await writeFile(settingsPath, JSON.stringify({ modelSelection: "pick-first-available" }));
         await session.prompt("/agents reload");
         assert.equal((await spawn("third", "unscoped")).state, "completed");
-        assert.equal(requests.at(-1)?.modelId, "offline-alt", "disabling is live too");
+        assert.equal(childRequests().at(-1)?.modelId, "offline-alt", "disabling is live too");
         assert.deepEqual(errors, []);
       },
     );

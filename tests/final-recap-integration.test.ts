@@ -698,3 +698,84 @@ test(
     );
   },
 );
+
+for (const foreground of [true, false]) {
+  for (const reopen of [false, true]) {
+    for (const finalRecap of [false, true]) {
+      test(
+        `inactive steer wakes root: ${foreground ? "foreground" : "detached"} spawn, ${reopen ? "reopened" : "retained"} session, recap ${finalRecap}`,
+        { timeout: 15000 },
+        async () => {
+          const resumed = deferred<AssistantMessage>();
+          let rootCalls = 0;
+          await withOfflineHarness(
+            {
+              agentFiles: { worker },
+              managerSettings: { finalRecap },
+              onRequest(request) {
+                if (request.path)
+                  return request.pathCall === 1 ? answer("Initial child result") : resumed.promise;
+                rootCalls++;
+                if (rootCalls === 1) return spawn(1, foreground);
+                return answer(
+                  request.messagesText.includes("Resumed child result")
+                    ? "Root handled resumed result"
+                    : "Initial root answer",
+                );
+              },
+            },
+            async ({ cwd, open, close, tool, requests, errors }) => {
+              let session = await open(SessionManager.create(cwd));
+              try {
+                await session.prompt("Delegate initial work");
+                await tool(session, "agent_wait", { path: "/root/worker-0" });
+                const initialCalls = foreground ? 2 : 3;
+                await waitFor(
+                  () => rootCalls === initialCalls && session.isIdle,
+                  "initial completion handled",
+                );
+                if (reopen) {
+                  const file = session.sessionManager.getSessionFile()!;
+                  await close(session);
+                  session = await open(SessionManager.open(file));
+                }
+                const initialSummaries = messages(session.sessionManager, SUMMARY).length;
+                const initialCompletions = mailbox(session.sessionManager).length;
+                await tool(session, "agent_steer", {
+                  path: "/root/worker-0",
+                  message: "Resume retained work",
+                });
+                await waitFor(
+                  () => requests.filter((request) => request.path).length === 2,
+                  "same child resumes",
+                );
+                await flushTimers();
+                assert.equal(rootCalls, initialCalls, "resuming alone does not wake root");
+                resumed.resolve(answer("Resumed child result"));
+                await waitFor(
+                  () => mailbox(session.sessionManager).length === initialCompletions + 1,
+                  "resumed completion retained",
+                );
+                await waitFor(
+                  () => rootCalls === initialCalls + 1 && session.isIdle,
+                  "resumed completion automatically wakes idle root",
+                );
+                assertLastVisible(session.sessionManager, "Root handled resumed result");
+                assert.equal(
+                  messages(session.sessionManager, SUMMARY).length,
+                  initialSummaries + (finalRecap ? 1 : 0),
+                );
+                await reload(session);
+                await flushTimers();
+                assert.equal(rootCalls, initialCalls + 1, "completion is delivered only once");
+                assert.deepEqual(errors, []);
+              } finally {
+                resumed.resolve(answer("Cleanup resumed child"));
+              }
+            },
+          );
+        },
+      );
+    }
+  }
+}
