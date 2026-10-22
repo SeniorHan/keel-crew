@@ -1,15 +1,15 @@
 # Subagent extension limitations
 
-**[labs] Enable subagent extensions** (`subagentExtensions`) is experimental and **off by default**. It reloads configured extension files into separate subagent sessions. Bugs and unintended consequences are possible; enable it only when your extensions are safe to run in multiple sessions.
+**[lab] Subagent extensions** (`subagentExtensions`) is experimental and **none selected by default**. It reloads selected auto-discovered/configured extension files into separate subagent sessions. Bugs and unintended consequences are possible; enable it only when your extensions are safe to run in multiple sessions.
 
-See [the setting and how to enable it](settings.md#labs-enable-subagent-extensions-subagentextensions).
+See [the setting and how to enable it](settings.md#labs-subagent-extensions-subagentextensions).
 
 ## Not an exact copy of the main agent's extensions
 
-- The public Pi extension API does not expose the main session's loaded-extension inventory. Subagents discover enabled extension files from user configuration and, only when the main project is trusted, project configuration.
-- **CLI-only, inline, and built-in extensions are not reloaded.** Configured file extensions are supported; this manager is excluded to avoid starting another subagent manager inside each child.
+- The public Pi extension API does not expose the main session's loaded-extension inventory. Subagents discover enabled extension files through Pi’s resource resolver: standalone `.ts`/`.js` files and subdirectory entry points in `<agentDir>/extensions` (honoring `PI_CODING_AGENT_DIR`), plus configured/package paths. The same discovery under `<cwd>/.pi/extensions` and project configuration is included only when the main project is trusted.
+- **CLI-only, inline, and built-in extensions are not reloaded.** Auto-discovered and configured file extensions are supported; this manager is excluded to avoid starting another subagent manager inside each child.
 - Configuration changed since the main session loaded can produce a different extension set in a newly opened subagent session. Disabled-extension settings and package resource filters are respected. Missing packages are skipped, never installed.
-- Saving the toggle affects newly opened sessions, including retained sessions reopened after reload. Already-open agents keep their extension runtime until disposed; the main agent's runtime is unchanged.
+- Saving the selection affects newly opened sessions, including retained sessions reopened after reload. Already-open agents keep their extension runtime until disposed; the main agent's runtime is unchanged.
 
 ## Some messages bypass `input` hooks
 
@@ -27,4 +27,4 @@ Reloaded extension tools take precedence over inherited main-session bridges, in
 
 **Bridged calls run through both child hooks and the main session's hooks.** They reuse main-session resources and context, so session-mutating tools are not necessarily isolated to the child, and hook side effects can occur in both sessions. Built-in codemode and tool search remain child-local rather than reusing the main agent's implementations.
 
-Leave the setting off if your extensions require exact main-session inheritance, interactive UI, or an `input` hook for every delivered message.
+Leave all extensions unselected if your extensions require exact main-session inheritance, interactive UI, or an `input` hook for every delivered message.
