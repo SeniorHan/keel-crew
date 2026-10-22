@@ -9,7 +9,7 @@ import { MIGRATION_INSTRUCTIONS } from "./import-instructions.ts";
 import { dialogText } from "../ui/dialog.ts";
 
 export const IMPORT_REQUEST_PREFIX =
-  "Import ONLY the agents I selected in the pi-subagent-manager migration picker.";
+  "Import ONLY the agents I selected in the keel-crew migration picker.";
 
 export const IMPORT_CHILD_TOOLS = [
   "read",

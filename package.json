@@ -1,5 +1,5 @@
 {
-  "name": "pi-subagent-manager",
+  "name": "keel-crew",
   "version": "0.31.0",
   "description": "Hierarchical, steerable subagent threads for pi",
   "type": "module",
@@ -15,11 +15,11 @@
   "author": "Arnav Gupta",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/championswimmer/pi-subagent-manager.git"
+    "url": "git+https://github.com/SeniorHan/keel-crew.git"
   },
-  "homepage": "https://github.com/championswimmer/pi-subagent-manager#readme",
+  "homepage": "https://github.com/SeniorHan/keel-crew#readme",
   "bugs": {
-    "url": "https://github.com/championswimmer/pi-subagent-manager/issues"
+    "url": "https://github.com/SeniorHan/keel-crew/issues"
   },
   "publishConfig": {
     "access": "public"

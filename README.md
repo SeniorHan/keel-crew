@@ -1,8 +1,8 @@
-# pi-subagent-manager
+# keel-crew
 
-[![npm version](https://img.shields.io/npm/v/pi-subagent-manager.svg)](https://www.npmjs.com/package/pi-subagent-manager)
-[![npm downloads](https://img.shields.io/npm/dm/pi-subagent-manager.svg)](https://www.npmjs.com/package/pi-subagent-manager)
-[![GitHub stars](https://img.shields.io/github/stars/championswimmer/pi-subagent-manager?style=social)](https://github.com/championswimmer/pi-subagent-manager/stargazers)
+> Fork of [championswimmer/pi-subagent-manager](https://github.com/championswimmer/pi-subagent-manager)
+> with fresh-only spawns, required supervision params and budget enforcement.
+> Maintained at [SeniorHan/keel-crew](https://github.com/SeniorHan/keel-crew).
 [![CI](https://github.com/championswimmer/pi-subagent-manager/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/championswimmer/pi-subagent-manager/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/championswimmer/pi-subagent-manager/branch/main/graph/badge.svg)](https://codecov.io/gh/championswimmer/pi-subagent-manager)
 

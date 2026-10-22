@@ -1,7 +1,7 @@
 /** Semantic migration belongs to the current session model, never a converter. */
 export const MIGRATION_INSTRUCTIONS = `
 ## Migration contract
-You are importing selected external definitions into pi-subagent-manager in THIS conversation.
+You are importing selected external definitions into keel-crew in THIS conversation.
 Do the migration yourself using the current session's file tools. Do not spawn a child, start
 another pi process, or create a reusable deterministic converter. The selection authorizes
 new compatible definitions only, not overwrites, broader permissions or silent feature loss.
