@@ -26,6 +26,20 @@ function result(value: unknown) {
   };
 }
 
+/**
+ * Legacy (pre-rename) `timeoutMs` param is still accepted at the execute layer
+ * and normalized to the new seconds-based field (ms / 1000). The new field
+ * always wins when both are present.
+ */
+function legacyTimeoutMsToSeconds(
+  params: Record<string, unknown>,
+  target: "timeout" | "maxWait",
+): number | undefined {
+  if (params[target] !== undefined) return params[target] as number;
+  const legacy = params.timeoutMs;
+  return typeof legacy === "number" ? legacy / 1000 : undefined;
+}
+
 /** All threads see the same verbs, with caller identity bound by closure, never model input. */
 export function agentTools(
   getManager: () => ThreadManager,
@@ -110,7 +124,17 @@ export function agentTools(
         }),
       }),
       async (params, signal) =>
-        result(compact(await threads().spawn(params, signal))),
+        result(
+          compact(
+            await threads().spawn(
+              {
+                ...params,
+                timeout: legacyTimeoutMsToSeconds(params, "timeout"),
+              },
+              signal,
+            ),
+          ),
+        ),
     ),
     make(
       "agent_wait",
@@ -128,7 +152,13 @@ export function agentTools(
       }),
       async (params, signal) =>
         result(
-          compact(await threads().wait(params.path, params.maxWait, signal)),
+          compact(
+            await threads().wait(
+              params.path,
+              legacyTimeoutMsToSeconds(params, "maxWait"),
+              signal,
+            ),
+          ),
         ),
     ),
     make(
@@ -154,7 +184,11 @@ export function agentTools(
       async (params) =>
         result(
           compact(
-            await threads().steer(params.path, params.message, params.timeout),
+            await threads().steer(
+              params.path,
+              params.message,
+              legacyTimeoutMsToSeconds(params, "timeout"),
+            ),
           ),
         ),
     ),

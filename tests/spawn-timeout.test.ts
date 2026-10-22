@@ -36,7 +36,13 @@ function setup() {
     },
   });
   const spawn = (path: string, timeout?: number) =>
-    manager.spawn("/root", { path, type: "w", task: "task", wait: false, timeout });
+    manager.spawn("/root", {
+      path,
+      type: "w",
+      task: "task",
+      wait: false,
+      timeout,
+    });
   const timeouts = () => events.filter((e) => e.kind === "timeout");
   const flush = () => new Promise<void>((r) => setImmediate(r));
   return { manager, events, gates, spawn, timeouts, flush };
@@ -64,7 +70,8 @@ test("timeout reports state to the parent without stopping the child", async (t)
 test("timer is cleared on completion, failure, stop and shutdown", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const { manager, gates, spawn, timeouts, flush } = setup();
-  for (const name of ["done", "failed", "stopped", "alive"]) await spawn(name, 60);
+  for (const name of ["done", "failed", "stopped", "alive"])
+    await spawn(name, 60);
   await flush();
   gates[0]!();
   gates[1]!(new Error("boom"));
@@ -87,30 +94,50 @@ test("steer timeout-only re-arms from now; invalid ranges are rejected; 0 re-arm
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const { manager, gates, spawn, timeouts, flush } = setup();
   for (const bad of [-1, 301, 1.5, Number.NaN])
-    await assert.rejects(spawn(`bad${bad}`, bad), /timeout must be an integer between 0/);
+    await assert.rejects(
+      spawn(`bad${bad}`, bad),
+      /timeout must be an integer between 0/,
+    );
   await spawn("plain");
   await spawn("a", 30);
   await flush();
   t.mock.timers.tick(20_000);
   for (const bad of [-1, 301])
-    await assert.rejects(manager.steer("/root", "a", undefined, bad), /between 0/);
+    await assert.rejects(
+      manager.steer("/root", "a", undefined, bad),
+      /between 0/,
+    );
   await manager.steer("/root", "a", undefined, 60);
   t.mock.timers.tick(59_999);
-  assert.equal(timeouts().filter((e) => e.thread.path === "/root/a").length, 0, "old deadline replaced");
+  assert.equal(
+    timeouts().filter((e) => e.thread.path === "/root/a").length,
+    0,
+    "old deadline replaced",
+  );
   t.mock.timers.tick(1);
   assert.deepEqual(
-    timeouts().filter((e) => e.thread.path === "/root/a").map((e) => e.timeout),
+    timeouts()
+      .filter((e) => e.thread.path === "/root/a")
+      .map((e) => e.timeout),
     [60],
   );
   assert.deepEqual(
-    timeouts().filter((e) => e.thread.path === "/root/plain").map((e) => e.timeout),
+    timeouts()
+      .filter((e) => e.thread.path === "/root/plain")
+      .map((e) => e.timeout),
     [60],
     "plain child fires at the 60s default",
   );
   gates.forEach((g) => g());
   await manager.wait("/root", "a");
-  await assert.rejects(manager.steer("/root", "a", undefined, 30), /working agent/);
-  await assert.rejects(manager.steer("/root", "a"), /message, timeout, or both/);
+  await assert.rejects(
+    manager.steer("/root", "a", undefined, 30),
+    /working agent/,
+  );
+  await assert.rejects(
+    manager.steer("/root", "a"),
+    /message, timeout, or both/,
+  );
   await manager.shutdown();
 });
 
@@ -139,14 +166,79 @@ test("tool schemas expose timeout/budgetTokens and steer timeout with report-onl
   const timeout = (spawn.parameters as any).properties.timeout;
   assert.equal(timeout.minimum, 0);
   assert.equal(timeout.maximum, 300);
-  assert.deepEqual((spawn.parameters as any).required, ["path", "type", "task", "timeout", "budgetTokens"]);
+  assert.deepEqual((spawn.parameters as any).required, [
+    "path",
+    "type",
+    "task",
+    "timeout",
+    "budgetTokens",
+  ]);
   const budget = (spawn.parameters as any).properties.budgetTokens;
   assert.equal(budget.minimum, 0);
-  assert.equal(tools.find((t) => t.name === "agent_extend_timeout"), undefined);
+  assert.equal(
+    tools.find((t) => t.name === "agent_extend_timeout"),
+    undefined,
+  );
   const steer = tools.find((t) => t.name === "agent_steer")!;
   assert.equal((steer.parameters as any).properties.timeout.minimum, 0);
   assert.equal((steer.parameters as any).properties.timeout.maximum, 300);
   assert.deepEqual((steer.parameters as any).required, ["path"]);
+});
+
+test("legacy timeoutMs param is still accepted at the execute layer and normalized to seconds", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { manager, gates, timeouts, flush } = setup();
+  const tools = agentTools(
+    () => manager,
+    "/root",
+    () => [],
+    () => ({}) as any,
+  );
+  const call = (name: string, params: Record<string, unknown>) =>
+    (tools.find((tool) => tool.name === name)!.execute as any)(
+      "t0",
+      params,
+      undefined,
+    );
+  try {
+    await call("agent_spawn", {
+      path: "legacy",
+      type: "w",
+      task: "task",
+      wait: false,
+      timeoutMs: 30_000,
+      budgetTokens: 0,
+    });
+    await flush();
+    t.mock.timers.tick(29_999);
+    assert.equal(
+      timeouts().length,
+      0,
+      "30000ms normalized to 30s, not read as 30000s",
+    );
+    t.mock.timers.tick(1);
+    assert.deepEqual(
+      timeouts().map((e) => (e as any).timeout),
+      [30],
+    );
+    const snapshotPending = call("agent_wait", {
+      path: "legacy",
+      timeoutMs: 0,
+    });
+    t.mock.timers.tick(0);
+    const snapshot = await snapshotPending;
+    assert.ok(
+      snapshot,
+      "legacy agent_wait timeoutMs=0 returns the current snapshot immediately",
+    );
+    await call("agent_steer", { path: "legacy", timeoutMs: 45_000 });
+    t.mock.timers.tick(44_999);
+    assert.equal(timeouts().length, 1, "legacy steer timeoutMs re-arms at 45s");
+    gates.forEach((g) => g());
+    await manager.wait("/root", "legacy");
+  } finally {
+    await manager.shutdown();
+  }
 });
 
 test("steer with message and timeout steers and re-arms", async (t) => {
@@ -168,19 +260,28 @@ test("steering and timer-only rearming leave a running foreground spawn foregrou
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const { manager, events, gates, timeouts, flush } = setup();
   try {
-    const completion = manager.spawn("/root", { path: "fg", type: "w", task: "task" });
+    const completion = manager.spawn("/root", {
+      path: "fg",
+      type: "w",
+      task: "task",
+    });
     await flush();
     assert.equal(manager.outstandingAsync(), 0);
     await manager.steer("/root", "fg", "queued steering");
     await manager.steer("/root", "fg", undefined, 30);
-    assert.equal(manager.outstandingAsync(), 0, "neither operation detaches the current run");
+    assert.equal(
+      manager.outstandingAsync(),
+      0,
+      "neither operation detaches the current run",
+    );
     t.mock.timers.tick(30_000);
     assert.equal(timeouts().length, 1, "report-only timer still reports");
     assert.equal(manager.get("fg").state, "running");
     gates[0]!();
     await completion;
     const settled = events.filter(
-      (event): event is Extract<ThreadEvent, { kind: "settled" }> => event.kind === "settled",
+      (event): event is Extract<ThreadEvent, { kind: "settled" }> =>
+        event.kind === "settled",
     );
     assert.equal(settled.length, 1);
     assert.equal(settled[0]!.async, false);
@@ -210,13 +311,18 @@ for (const state of ["completed", "paused", "failed", "stopped"] as const) {
         },
       ]);
       await manager.steer("/root", "retained", "resume");
-      assert.equal(manager.outstandingAsync(), 1, "new run immediately blocks premature recap");
+      assert.equal(
+        manager.outstandingAsync(),
+        1,
+        "new run immediately blocks premature recap",
+      );
       await flush();
       gates[0]!();
       await manager.wait("/root", "retained");
       assert.equal(manager.outstandingAsync(), 0);
       const settled = events.filter(
-        (event): event is Extract<ThreadEvent, { kind: "settled" }> => event.kind === "settled",
+        (event): event is Extract<ThreadEvent, { kind: "settled" }> =>
+          event.kind === "settled",
       );
       assert.equal(settled.length, 1);
       assert.equal(settled[0]!.async, true);
