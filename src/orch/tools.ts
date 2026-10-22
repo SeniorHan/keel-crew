@@ -4,11 +4,19 @@ import type { ThreadManager } from "./manager.ts";
 import { ModelPreferenceError } from "../prefs/models.ts";
 import type { AgentType, ResolvedAgentSettings, ThreadView } from "../types.ts";
 
-const path = Type.String({ description: "Absolute agent path, or name relative to the caller" });
+const path = Type.String({
+  description: "Absolute agent path, or name relative to the caller",
+});
 const text = Type.String({ minLength: 1 });
-function compact(thread: ThreadView): ThreadView & { outputTruncated?: boolean } {
+function compact(
+  thread: ThreadView,
+): ThreadView & { outputTruncated?: boolean } {
   if (thread.output && thread.output.length > 16000)
-    return { ...thread, output: thread.output.slice(0, 16000), outputTruncated: true };
+    return {
+      ...thread,
+      output: thread.output.slice(0, 16000),
+      outputTruncated: true,
+    };
   return thread;
 }
 function result(value: unknown) {
@@ -81,7 +89,7 @@ export function agentTools(
     ),
     make(
       "agent_spawn",
-      "Spawn a named child agent. The child receives only its own task prompt and the agent type's prompt. To hand over context, write a self-contained brief (decisions, paths, file locations) into the task, or point the child at files. Foreground waits by default; wait:false runs detached: when it completes, fails or is stopped, you receive a message event that wakes you, so do not poll. Required timeout (seconds; 0 = 60s default): report-only supervision — when it fires you get an event with the child's state, elapsed time, tokens and recent output; the child is NOT stopped; re-arm with agent_steer({path, timeout}). Required budgetTokens (0 = 2,000,000 input-token default): when the child's cumulative input tokens exceed this budget it is stopped and you get an event with its recent output; its session stays readable via agent_output. For parallel work, spawn every independent sibling with wait:false before calling agent_wait; child agents with delegation tools should do the same. Existing paths are retained and can be resumed with agent_steer. Use agent_types to discover current types.",
+      "生成命名子代理,子代理只收自己的 task 与类型 prompt。传上下文:把自含简报(决策/路径/文件位置)写进 task,或指向文件。默认前台等待;wait:false 转后台,完成/失败/被停时收到唤醒消息,勿轮询。timeout 到点仅发状态事件(状态/耗时/tokens/最近输出),绝不停止子代理,续期用 agent_steer。budgetTokens 超限即停子代理并发事件,session 仍可经 agent_output 读取。并行时先以 wait:false 生成全部独立兄弟,再 agent_wait;有委派工具的子代理照做。既有 path 保留,可经 agent_steer 恢复。可用类型用 agent_types 查询。",
       Type.Object({
         path: Type.String({
           description:
@@ -94,19 +102,19 @@ export function agentTools(
           minimum: 0,
           maximum: 300,
           description:
-            "Required: report-only supervision timer in seconds (never aborts the child); 0 = 60s default. If the child is still running after this many seconds you receive a status event (state, elapsed time, tokens, recent output).",
+            "报告型监督计时器:到点只发事件,绝不停止子代理。必填,整数秒 0–300,0=落 60s 默认。",
         }),
         budgetTokens: Type.Integer({
           minimum: 0,
-          description:
-            "Required: cumulative input-token budget for this thread; 0 = 2,000,000-token default. Exceeding it stops the child and reports an event with its recent output.",
+          description: "必填,本线程累计输入 token 上限,0=2,000,000 默认。",
         }),
       }),
-      async (params, signal) => result(compact(await threads().spawn(params, signal))),
+      async (params, signal) =>
+        result(compact(await threads().spawn(params, signal))),
     ),
     make(
       "agent_wait",
-      "Wait for a descendant to complete, fail, stop or pause. Paused means no final answer handback. Cancellation/timeouts do not stop the child; poll status or wait again.",
+      "等待后代代理完成/失败/停止/暂停。取消与到点均不影响子代理;到点返回当前快照,可再等待或经 agent_status 轮询。暂停态无 final answer 回传,可经 agent_steer 恢复。",
       Type.Object({
         path,
         maxWait: Type.Optional(
@@ -114,22 +122,24 @@ export function agentTools(
             minimum: 0,
             maximum: 3600,
             description:
-              "Caller-side wait cap in seconds; 0 returns the current snapshot immediately. Omit to wait indefinitely. Elapsing does not stop the child; poll agent_status or wait again.",
+              "调用方等待上界,不影响子代理。整数秒 0–3600,0=立即返回当前快照,省略=无限等待。",
           }),
         ),
       }),
       async (params, signal) =>
-        result(compact(await threads().wait(params.path, params.maxWait, signal))),
+        result(
+          compact(await threads().wait(params.path, params.maxWait, signal)),
+        ),
     ),
     make(
       "agent_steer",
-      'Send input to a descendant and/or re-arm its report-only timeout. With message: working threads receive queued steering; completed, stopped and paused threads resume the SAME session with its previous context. With timeout (seconds; 0 = 60s default, up to 300): the timer fires that many seconds from now, replacing any pending timer. To extend a running background agent\'s reporting timer without sending input, call agent_steer({path: "/root/task", timeout: 120}) and omit message entirely. This resets the timer to 120 seconds from now, not an addition to the old deadline. timeout WITHOUT message only re-arms the timeout of a running child (error if not running) and does not steer, interrupt or resume it; with both, steer and re-arm. At least one is required. Returns immediately; use agent_wait for the result.',
+      "向后代代理发送输入和/或重置其监督计时器。带 message:运行中线程排队接收转舵;完成/停止/暂停线程以原 session 连同先前上下文恢复。带 timeout:计时器自现在起重新计时,替换原计时,非累加。仅 timeout:只重置运行中子代理的计时器,未运行则报错,不发送输入、不中断、不恢复。两者同给则转舵并重置。至少给一个。立即返回,结果用 agent_wait。",
       Type.Object({
         path,
         message: Type.Optional(
           Type.String({
             minLength: 1,
-            description: "Input to send or resume with. Omit entirely for a timer-only re-arm.",
+            description: "Input to send or resume with.",
           }),
         ),
         timeout: Type.Optional(
@@ -137,30 +147,56 @@ export function agentTools(
             minimum: 0,
             maximum: 300,
             description:
-              "Reset the report-only timer to this many seconds from now (never aborts the child), replacing any pending timer; 0 = 60s default. With no message, only re-arms a running agent; does not send input, interrupt or resume it.",
+              "报告型监督计时器,绝不停止子代理。整数秒 0–300,0=落 60s 默认。",
           }),
         ),
       }),
       async (params) =>
-        result(compact(await threads().steer(params.path, params.message, params.timeout))),
+        result(
+          compact(
+            await threads().steer(params.path, params.message, params.timeout),
+          ),
+        ),
     ),
     make(
       "agent_status",
-      "Read a thread's status or list visible descendants. Root can inspect all trees. Completion retains the session; pause retains it without final answer handback.",
-      Type.Object({ path: Type.Optional(path) }),
+      "读取线程状态;省略 path 则列出可见后代。/root 可查所有树。完成/失败/停止/暂停均保留 session。",
+      Type.Object({
+        path: Type.Optional(
+          Type.String({
+            description: "Omit to list visible descendants.",
+          }),
+        ),
+      }),
       (params) =>
-        result(params.path ? compact(threads().get(params.path)) : threads().list().map(compact)),
+        result(
+          params.path
+            ? compact(threads().get(params.path))
+            : threads().list().map(compact),
+        ),
     ),
     make(
       "agent_update",
       "Child-only: send progress to the parent without ending this task. Delivery is recorded and displayed but does not interrupt or automatically restart the parent model.",
-      Type.Object({ message: Type.String({ minLength: 1, maxLength: 8000 }) }),
+      Type.Object({
+        message: Type.String({
+          minLength: 1,
+          maxLength: 8000,
+          description: "Progress text, 1–8000 characters.",
+        }),
+      }),
       (params) => result(compact(threads().update(params.message))),
     ),
     make(
       "agent_pause",
-      "Child-only: stop at this turn boundary WITHOUT returning a final answer. Keep the SAME session for user/parent input via agent_steer. To finish and hand back an answer instead, simply return your final assistant answer. Both states can be resumed.",
-      Type.Object({ reason: text }),
+      "子代理专用:本回合边界停止,不回传 final answer;session 保留,可经 agent_steer 恢复。要交付答案则直接返回最终回答,该完成态同样可恢复。",
+      Type.Object({
+        reason: Type.String({
+          minLength: 1,
+          description:
+            "Written into thread status; empty falls back to 'Awaiting further input'.",
+        }),
+      }),
       (params) => ({
         ...result({
           path: caller,
@@ -178,11 +214,22 @@ export function agentTools(
     ),
     make(
       "agent_output",
-      "Read completed thread output in character pages. Paused threads deliberately have no final answer handback. All sessions can be viewed by the user with /agents tree; select a thread and press Enter to inspect it.",
+      "按字符分页读取线程输出;nextOffset 非空即还有后续页。",
       Type.Object({
         path,
-        offset: Type.Optional(Type.Integer({ minimum: 0 })),
-        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 16000 })),
+        offset: Type.Optional(
+          Type.Integer({
+            minimum: 0,
+            description: "0-based character offset; default 0.",
+          }),
+        ),
+        limit: Type.Optional(
+          Type.Integer({
+            minimum: 1,
+            maximum: 16000,
+            description: "Characters per page; default 8000, max 16000.",
+          }),
+        ),
       }),
       (params) => {
         const output = threads().output(params.path),
