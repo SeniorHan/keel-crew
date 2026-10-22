@@ -25,7 +25,11 @@ import {
 } from "../src/orch/mailbox.ts";
 import { createDriverFactory } from "../src/orch/runtime.ts";
 import type { AgentDriver, DriverEvent, DriverOptions, TranscriptSnapshot } from "../src/types.ts";
-import type { ModelSelectionMode, ToolFilteringMode } from "../src/prefs/settings.ts";
+import type {
+  ModelSelectionMode,
+  SubagentExtensionSelection,
+  ToolFilteringMode,
+} from "../src/prefs/settings.ts";
 import type { InheritedToolSource } from "../src/orch/inherited-tools.ts";
 import { fileURLToPath } from "node:url";
 
@@ -224,7 +228,7 @@ test("isolated real SDK driver without credentials", async (t) => {
     };
     let modelSelection: ModelSelectionMode = "pick-first-scoped";
     let toolFiltering: ToolFilteringMode = "allowed";
-    let subagentExtensions = false;
+    let subagentExtensions: SubagentExtensionSelection = false;
     let inheritedTools: InheritedToolSource = { tools: [], activeNames: [] };
     const factory = createDriverFactory(
       () => ctx,
@@ -410,7 +414,18 @@ test("isolated real SDK driver without credentials", async (t) => {
           assert.doesNotMatch(requests.at(-1)!.system, /EXTENSION BEFORE START/);
           assert.doesNotMatch(JSON.stringify(requests.at(-1)!.messages), /EXTENSION CONTEXT/);
 
-          subagentExtensions = true;
+          subagentExtensions = [];
+          const none = await create(extensionOptions("/root/extensions-empty"));
+          await none.prompt("no selected hooks");
+          assert.deepEqual(entries(none.sessionFile!), []);
+          await none.dispose();
+          // An unselected configured factory must never execute, even at load time.
+          const unselected = path.join(extensionDir, "unselected.ts");
+          await writeFile(
+            unselected,
+            'export default function() { throw new Error("UNSELECTED FACTORY RAN"); }',
+          );
+          subagentExtensions = [extensionFile];
           const child = await create(extensionOptions("/root/extensions-on"));
           issueToolCall();
           await child.prompt("run child hooks");
@@ -508,6 +523,7 @@ test("isolated real SDK driver without credentials", async (t) => {
           );
           assert.equal(bridgeCalls, 2);
 
+          await rm(unselected);
           subagentExtensions = true;
           const filtered = await create(options({ path: "/root/extensions-filtered" }));
           await filtered.prompt("hooks must not add unauthorized tools");
@@ -597,6 +613,58 @@ test("isolated real SDK driver without credentials", async (t) => {
           inheritedTools = { tools: [], activeNames: [] };
           subagentExtensions = false;
           await rm(extensionDir, { recursive: true, force: true });
+        }
+      },
+    );
+
+    await t.test(
+      "auto-discovered standalone and directory extensions load only when selected/trusted",
+      async () => {
+        // The enclosing test sets PI_CODING_AGENT_DIR=directory, exercising runtime
+        // getAgentDir() resolution rather than assuming the default home directory.
+        const extensionDir = path.join(directory, "extensions");
+        const projectFile = path.join(cwd, ".pi", "extensions", "standalone.ts");
+        const files = ["standalone.ts", "standalone.js", "ts-dir/index.ts", "js-dir/index.js"];
+        const hook = (marker: string) => `export default function(pi) {
+        pi.on("before_agent_start", (event) => {
+          event.systemPromptOptions.appendSystemPrompt += "\\n" + ${JSON.stringify(marker)};
+        });
+      }`;
+        try {
+          for (const [index, file] of files.entries()) {
+            const target = path.join(extensionDir, file);
+            await mkdir(path.dirname(target), { recursive: true });
+            await writeFile(target, hook(`AUTO EXTENSION ${index}`));
+          }
+          await writeFile(
+            path.join(extensionDir, "unselected.ts"),
+            'throw new Error("UNSELECTED AUTO FILE LOADED")',
+          );
+          await symlink(
+            fileURLToPath(new URL("../src/index.ts", import.meta.url)),
+            path.join(extensionDir, "manager.ts"),
+          );
+          await writeFile(projectFile, hook("AUTO PROJECT EXTENSION"));
+          // Select every supported entry-point form, without an extensions setting.
+          subagentExtensions = [...files.map((file) => path.join(extensionDir, file)), projectFile];
+          const untrusted = await create(options({ path: "/root/auto-untrusted" }));
+          await untrusted.prompt("load auto-discovered selections");
+          for (const index of files.keys())
+            assert.match(requests.at(-1)!.system, new RegExp(`AUTO EXTENSION ${index}`));
+          assert.doesNotMatch(requests.at(-1)!.system, /AUTO PROJECT EXTENSION/);
+          await untrusted.dispose();
+          ctx.isProjectTrusted = () => true;
+          subagentExtensions = [projectFile];
+          const trusted = await create(options({ path: "/root/auto-trusted" }));
+          await trusted.prompt("load only the selected project file");
+          assert.match(requests.at(-1)!.system, /AUTO PROJECT EXTENSION/);
+          assert.doesNotMatch(requests.at(-1)!.system, /AUTO EXTENSION/);
+          await trusted.dispose();
+        } finally {
+          ctx.isProjectTrusted = () => false;
+          subagentExtensions = false;
+          await rm(extensionDir, { recursive: true, force: true });
+          await rm(projectFile, { force: true });
         }
       },
     );
