@@ -165,7 +165,7 @@ export function agentTools(
     ),
     make(
       "agent_stop",
-      "Stop a descendant and its working children. Session history is retained; resume with agent_steer. This is cooperative cancellation, not sandbox process termination.",
+      "Stop a descendant and every still-working descendant below it (the whole subtree, any depth). Session history is retained; resume with agent_steer. This is cooperative cancellation, not sandbox process termination.",
       Type.Object({ path }),
       async (params) => result(compact(await threads().stop(params.path))),
     ),
