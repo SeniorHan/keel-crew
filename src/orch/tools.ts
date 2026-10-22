@@ -81,7 +81,7 @@ export function agentTools(
     ),
     make(
       "agent_spawn",
-      "Spawn a named child. The lexical parent, NOT the caller, supplies a context snapshot. /root is the main thread; independent roots have no inherited context. Foreground waits by default; wait:false runs detached: when it completes, fails or is stopped, you receive a message event that wakes you, so do not poll. Optional timeoutMs (30000–300000; none if unset): if the child is still running after that many ms you receive an event with its status, elapsed time, tokens and recent output (the child is NOT stopped; you decide whether to wait, steer, stop it or re-arm with agent_steer timeoutMs). For parallel work, spawn every independent sibling with wait:false before calling agent_wait; child agents with delegation tools should do the same. Existing paths are retained and can be resumed with agent_steer. Use agent_types to discover current types.",
+      "Spawn a fresh named child. Every child starts with NO conversation history: it receives only its own task prompt and the agent type's prompt. To hand over context, write a self-contained brief (decisions, paths, file locations) into the task, or point the child at files. Foreground waits by default; wait:false runs detached: when it completes, fails or is stopped, you receive a message event that wakes you, so do not poll. Required timeoutMs (ms; 0 = 60s default): report-only supervision — when it fires you get an event with the child's state, elapsed time, tokens and recent output; the child is NOT stopped; re-arm with agent_steer({path, timeoutMs}). Required budgetTokens (0 = 2,000,000 input-token default): when the child's cumulative input tokens exceed this budget it is stopped and you get an event with its recent output; its session stays readable via agent_output. For parallel work, spawn every independent sibling with wait:false before calling agent_wait; child agents with delegation tools should do the same. Existing paths are retained and can be resumed with agent_steer. Use agent_types to discover current types.",
       Type.Object({
         path: Type.String({
           description:
@@ -90,14 +90,17 @@ export function agentTools(
         type: text,
         task: text,
         wait: Type.Optional(Type.Boolean()),
-        timeoutMs: Type.Optional(
-          Type.Integer({
-            minimum: 30000,
-            maximum: 300000,
-            description:
-              "Optional report-only timeout, 30000–300000 ms (30s–5min). If the child is still running after this many ms, a status event is sent to you; the child keeps running.",
-          }),
-        ),
+        timeoutMs: Type.Integer({
+          minimum: 0,
+          maximum: 300000,
+          description:
+            "Required: report-only supervision timer in ms; 0 = 60s default. If the child is still running after this many ms you receive a status event (state, elapsed time, tokens, recent output); the child keeps running.",
+        }),
+        budgetTokens: Type.Integer({
+          minimum: 0,
+          description:
+            "Required: cumulative input-token budget for this thread; 0 = 2,000,000-token default. Exceeding it stops the child and reports an event with its recent output.",
+        }),
       }),
       async (params, signal) => result(compact(await threads().spawn(params, signal))),
     ),
@@ -113,7 +116,7 @@ export function agentTools(
     ),
     make(
       "agent_steer",
-      'Send input to a descendant and/or re-arm its report-only timeout. With message: working threads receive queued steering; completed, stopped and paused threads resume the SAME session with its previous context. With timeoutMs (30000–300000): the timeout fires that many ms from now, replacing any pending timer. To extend a running background agent\'s reporting timer without sending input, call agent_steer({path: "/root/task", timeoutMs: 120000}) and omit message entirely. This resets the timer to 120000 ms from now, not an addition to the old deadline. timeoutMs WITHOUT message only re-arms the timeout of a running child (error if not running) and does not steer, interrupt or resume it; with both, steer and re-arm. At least one is required. Returns immediately; use agent_wait for the result.',
+      'Send input to a descendant and/or re-arm its report-only timeout. With message: working threads receive queued steering; completed, stopped and paused threads resume the SAME session with its previous context. With timeoutMs (0 = 60s default, or 30000–300000): the timeout fires that many ms from now, replacing any pending timer. To extend a running background agent\'s reporting timer without sending input, call agent_steer({path: "/root/task", timeoutMs: 120000}) and omit message entirely. This resets the timer to 120000 ms from now, not an addition to the old deadline. timeoutMs WITHOUT message only re-arms the timeout of a running child (error if not running) and does not steer, interrupt or resume it; with both, steer and re-arm. At least one is required. Returns immediately; use agent_wait for the result.',
       Type.Object({
         path,
         message: Type.Optional(
@@ -124,10 +127,10 @@ export function agentTools(
         ),
         timeoutMs: Type.Optional(
           Type.Integer({
-            minimum: 30000,
+            minimum: 0,
             maximum: 300000,
             description:
-              "Reset the report-only timer to this many ms from now, replacing any pending timer. With no message, only re-arms a running agent; does not send input, interrupt or resume it.",
+              "Reset the report-only timer to this many ms from now, replacing any pending timer; 0 = 60s default. With no message, only re-arms a running agent; does not send input, interrupt or resume it.",
           }),
         ),
       }),

@@ -136,7 +136,7 @@ export async function withOfflineHarness(
           modelId: model.id,
           path: typeof pathKey === "string" && pathKey.startsWith("/root") ? pathKey : null,
           lexicalParent:
-            system.match(/Your lexical parent is (\/root(?:\/[A-Za-z0-9_-]+)*);/)?.[1] ?? null,
+            system.match(/Your lexical parent is (\/root(?:\/[A-Za-z0-9_-]+)*)\./)?.[1] ?? null,
           system,
           messagesText: JSON.stringify(context.messages),
           toolNames: getCurrentTools(context.messages).map((tool) => tool.name),

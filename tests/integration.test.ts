@@ -89,7 +89,9 @@ test(
           path: "worker",
           type: "offline",
           task: "Pause until more input",
-        });
+            timeoutMs: 0,
+            budgetTokens: 0,
+          });
         assert.equal(paused.state, "paused");
         assert.equal(paused.output, undefined, "pause must not hand back an answer");
         assert.equal(requests.length, 1, "pause stops before another provider turn");
@@ -304,7 +306,9 @@ test(
           path: CHILD_PATH,
           type: "offline",
           task: "Draft a nested follow-up",
-        });
+            timeoutMs: 0,
+            budgetTokens: 0,
+          });
         assert.equal(spawned.state, "completed");
         assert.equal(spawned.output, CHILD_OUTPUT);
         assert.equal(path.dirname(spawned.sessionFile!), root.getSessionDir());
@@ -314,11 +318,11 @@ test(
         );
         assert.equal(requests.length, 1, "only the new child prompt uses the provider");
         assert.equal(requests[0].lexicalParent, "/root/team/reviewer");
-        assert.equal(requests[0].modelId, "offline-alt", "inherits the lexical parent's model");
+        assert.equal(requests[0].modelId, "offline-alt", "uses the saved agent type's model");
         assertMarkers(
           requests[0].messagesText,
-          [ROOT, TEAM, REVIEWER],
-          [ROOT_LATER, SIBLING, CHECKER],
+          [],
+          [ROOT, TEAM, REVIEWER, ROOT_LATER, SIBLING, CHECKER],
         );
         await new Promise((resolve) => setImmediate(resolve));
         assert.equal(requests.length, 1, "delivery into the parent transcript stays offline");
@@ -414,7 +418,9 @@ test(
           path: "worker",
           type: "offline",
           task: "Produce the first answer",
-        });
+            timeoutMs: 0,
+            budgetTokens: 0,
+          });
         assert.equal(first.state, "completed");
         assert.equal(first.output, "answer A");
         const childFile = first.sessionFile!;
@@ -423,8 +429,8 @@ test(
         const leafA = sessionLeafId(savedA);
         assertMarkers(
           contextText(SessionManager.open(childFile), leafA),
-          [ROOT_SEED, "answer A"],
-          ["answer B", "answer C"],
+          ["answer A"],
+          [ROOT_SEED, "answer B", "answer C"],
         );
 
         await tool(session, "agent_steer", { path: CHILD_PATH, message: "Continue to answer B" });
@@ -437,8 +443,8 @@ test(
         assert.notEqual(leafA, leafB);
         assertMarkers(
           contextText(SessionManager.open(childFile), leafB),
-          [ROOT_SEED, "answer A", "answer B"],
-          ["answer C"],
+          ["answer A", "answer B"],
+          [ROOT_SEED, "answer C"],
         );
 
         const navigatedA = await session.navigateTree(checkpointA, { summarize: false });
@@ -464,8 +470,8 @@ test(
         assert.equal(childRequests().length, 3);
         assertMarkers(
           childRequests()[2].messagesText,
-          [ROOT_SEED, "answer A", "answer C"],
-          ["answer B"],
+          ["answer A", "answer C"],
+          [ROOT_SEED, "answer B"],
         );
 
         const navigatedB = await session.navigateTree(checkpointB, { summarize: false });

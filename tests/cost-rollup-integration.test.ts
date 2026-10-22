@@ -111,7 +111,9 @@ test(
                 type: "worker",
                 task: "First run",
                 wait: true,
-              })
+            timeoutMs: 0,
+            budgetTokens: 0,
+          })
             : answer(0.02, "Main answer");
         },
       },
@@ -186,7 +188,9 @@ test(
           type: "worker",
           task: "Replacement run",
           wait: true,
-        });
+            timeoutMs: 0,
+            budgetTokens: 0,
+          });
         await tool(session, "agent_wait", { path: "worker" });
         assert.equal(replacement.state, "completed");
         assert.notEqual(replacement.costId, identity, "a reused path represents a new lifetime");
@@ -201,7 +205,7 @@ test(
 );
 
 test(
-  "nested parent and child roll up only their own usage, excluding inherited history",
+  "nested parent and child roll up only their own usage; children start fresh",
   { timeout: 30000 },
   async () => {
     await withOfflineHarness(
@@ -222,22 +226,26 @@ test(
           type: "worker",
           task: "Parent work",
           wait: true,
-        });
+            timeoutMs: 0,
+            budgetTokens: 0,
+          });
         await tool(session, "agent_wait", { path: "team" });
         const child = await tool<ThreadView>(session, "agent_spawn", {
           path: "team/child",
           type: "worker",
           task: "Nested work",
           wait: true,
-        });
+            timeoutMs: 0,
+            budgetTokens: 0,
+          });
         await tool(session, "agent_wait", { path: "team/child" });
         approximately(child.costUsd, 0.2);
         assert.notEqual(child.costId, parent.costId);
         approximately(total(root), 0.7);
-        const inherited = SessionManager.open(child.sessionFile!)
+        const own = SessionManager.open(child.sessionFile!)
           .getEntries()
           .filter((entry) => entry.type === "message" && entry.message.role === "assistant");
-        assert.ok(inherited.length >= 2, "child session includes inherited parent's answer");
+        assert.equal(own.length, 1, "child session holds only its own answer (fresh, no inherited history)");
         await tool(session, "agent_steer", { path: "team", message: "Parent follow-up" });
         const resumed = await tool<ThreadView>(session, "agent_wait", { path: "team" });
         approximately(resumed.costUsd, 0.8);
@@ -277,7 +285,9 @@ test(
           type: "worker",
           task: "Pause",
           wait: true,
-        });
+            timeoutMs: 0,
+            budgetTokens: 0,
+          });
         await tool(session, "agent_wait", { path: "worker" });
         assert.equal(paused.state, "paused");
         approximately(total(root), 0.5);
@@ -337,7 +347,9 @@ test(
           type: "worker",
           task: "Continue until stopped",
           wait: true,
-        });
+            timeoutMs: 0,
+            budgetTokens: 0,
+          });
         await pendingStarted;
         approximately(registry(root).threads[0].view.costUsd, 0.5);
         assert.equal(total(root), 0, "running cost is not yet rolled up");

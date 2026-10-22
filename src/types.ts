@@ -78,6 +78,8 @@ export interface ThreadView {
   outputTokens?: number;
   /** Cumulative estimated USD cost for this agent's own messages. */
   costUsd?: number;
+  /** Cumulative input-token budget for this thread; exceeding it stops the thread. */
+  budgetTokens?: number;
   /** Stable lifetime identity for cost accounting, retained across resumes/reloads. */
   costId?: string;
 }
@@ -181,6 +183,7 @@ export interface SavedThreadView {
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
+  budgetTokens?: number;
   costId?: string;
 }
 export interface SavedThread {
@@ -197,7 +200,14 @@ export interface ThreadService {
   /** Optional for portable adapters; the runtime manager always implements this. */
   observeTranscript?(path: string, listener: TranscriptListener): Promise<TranscriptObservation>;
   spawn(
-    args: { path: string; type: string; task: string; wait?: boolean; timeoutMs?: number },
+    args: {
+      path: string;
+      type: string;
+      task: string;
+      wait?: boolean;
+      timeoutMs?: number;
+      budgetTokens?: number;
+    },
     signal?: AbortSignal,
   ): Promise<ThreadView>;
   /** message and/or timeoutMs (30s–5min). timeoutMs alone only re-arms a running child's report-only timeout. */
@@ -220,6 +230,15 @@ export type ThreadEvent =
       recipient: string;
       timeoutMs: number;
       recentOutput: string;
+    }
+  /** The child exceeded its input-token budget and was stopped; its session is retained. */
+  | {
+      kind: "budget";
+      thread: ThreadView;
+      recipient: string;
+      budgetTokens: number;
+      spentTokens: number;
+      recentOutput: string;
     };
 /** Recent live activity of one running agent, offered to the optional housekeeping summarizer. */
 export interface ThreadActivity {
@@ -233,6 +252,13 @@ export interface ThreadActivity {
 }
 export interface ManagerOptions {
   createDriver: DriverFactory;
+  /** Legacy: only used to resolve pending contexts of threads saved before fork inheritance was removed. */
+  /**
+   * Snapshot of the root conversation messages.
+   *
+   * Legacy hook retained for interface compatibility; since fork inheritance was
+   * removed, spawned children never consume it.
+   */
   rootSnapshot(): AgentMessage[];
   getType(name: string): AgentType;
   toolsFor(path: string): ToolDefinition[];

@@ -29,10 +29,10 @@ Ask pi to delegate in plain language:
 Or start an agent yourself:
 
 ```text
-/agents fork:coder fix the failing auth test
+/agents fresh:coder fix the failing auth test
 ```
 
-`fork:` includes your current conversation. Use `fresh:` instead for a task that needs no conversation history.
+Every agent starts **fresh**: it gets only its task text and agent config, never your conversation history. Put the context it needs into the task itself. (Forked contexts were removed in 0.31.0 — handing off work in progress is best done with a written handoff, and conversation branching belongs to pi's own `--fork`/`/tree`.)
 
 The **Agents** widget above the input shows what's running. Open `/agents tree`, select an agent, and press **Enter** to watch it. Type in the **Steer** input to give it more direction or resume it after it finishes. Results also return to the main agent.
 

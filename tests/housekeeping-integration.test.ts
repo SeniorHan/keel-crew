@@ -41,7 +41,7 @@ const answer = (text: string): AssistantMessage => ({
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
   },
 });
-const toolCall = (name: string, args: Record<string, string | boolean>): AssistantMessage => ({
+const toolCall = (name: string, args: Record<string, string | boolean | number>): AssistantMessage => ({
   ...answer(""),
   stopReason: "toolUse",
   content: [{ type: "toolCall", id: `call-${name}`, name, arguments: args }],
@@ -82,6 +82,8 @@ async function scenario(
             type: "worker",
             task: "Read the project notes",
             wait: false,
+            timeoutMs: 0,
+            budgetTokens: 0,
           });
         return answer("Delegated");
       },
@@ -252,7 +254,9 @@ test(
               type: "worker",
               task: "Read the project notes",
               wait: false,
-            });
+              timeoutMs: 0,
+              budgetTokens: 0,
+          });
           return answer("Delegated");
         },
       },

@@ -302,25 +302,20 @@ test("subcommand completions are fuzzy and unknown subcommands report usage", as
   });
 });
 
-test("fork:/fresh: complete every agent type", async () => {
-  await withCommands(async ({ command }) => {
+test("fresh: completes every agent type; fork: is rejected with removal guidance", async () => {
+  await withCommands(async ({ command, ctx, notifications }) => {
     const values = (prefix: string) =>
       (command.getArgumentCompletions(prefix) as { value: string }[] | null)?.map((c) => c.value);
-    assert.deepEqual(values("f"), ["fork:", "fresh:"]);
-    const forks = values("fo")!;
-    assert.ok(forks.length > 1 && forks.every((v) => v.startsWith("fork:")));
-    const names = forks.map((v) => v.slice(5));
-    assert.deepEqual(
-      values("fr"),
-      names.map((n) => `fresh:${n}`),
-    );
-    assert.deepEqual(values("fork:"), forks);
-    assert.deepEqual(
-      values("fresh:"),
-      names.map((n) => `fresh:${n}`),
-    );
+    assert.deepEqual(values("f"), ["fresh:"]);
+    const fresh = values("fr")!;
+    assert.ok(fresh.length > 1 && fresh.every((v) => v.startsWith("fresh:")));
+    const names = fresh.map((v) => v.slice(6));
+    assert.deepEqual(values("fresh:"), fresh);
     assert.deepEqual(values(`fresh:${names[0]}`)?.includes(`fresh:${names[0]}`), true);
-    assert.equal(command.getArgumentCompletions(`fork:${names[0]} do`), null);
+    assert.equal(command.getArgumentCompletions(`fresh:${names[0]} do`), null);
+    notifications.length = 0;
+    await command.handler("fork:worker do", ctx);
+    assert.match(notifications.at(-1)!, /Forked spawns were removed/);
   });
 });
 

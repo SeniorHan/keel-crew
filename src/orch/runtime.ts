@@ -485,7 +485,7 @@ export function createDriverFactory(
         options.type.systemPrompt,
         `Your thread path is ${options.path}.`,
         options.parentPath
-          ? `Your lexical parent is ${options.parentPath}; inherited conversation comes only from that parent.`
+          ? `Your lexical parent is ${options.parentPath}. You start with no conversation history; your task prompt is your entire briefing.`
           : "You are an independent root thread with no inherited history.",
         "When finished, give your final answer normally so it can be handed back. To retain unfinished work without a final answer, call agent_pause (if available), then stop; resume only when instructed.",
         ...(allowed.has("agent_spawn") && allowed.has("agent_wait")

@@ -457,7 +457,10 @@ export default function piSubagent(pi: ExtensionAPI): void {
     const message =
       event.kind === "update"
         ? `Progress from ${thread.path}: ${event.message}`
-        : event.kind === "timeout"
+        : event.kind === "budget"
+          ? `Agent ${thread.path} exhausted its input-token budget (${event.spentTokens} > ${event.budgetTokens}) and was stopped; its session is retained (read it with agent_output).\n` +
+            `Recent output:\n${event.recentOutput || "(none yet)"}`
+          : event.kind === "timeout"
           ? `Agent ${thread.path} hit its ${fmtMs(event.timeoutMs)} spawn timeout and is STILL RUNNING (not stopped). ` +
             `State: ${thread.state}; status: ${thread.status}; elapsed: ${fmtMs(elapsed)}; ` +
             `tokens: ${thread.inputTokens ?? 0} in / ${thread.outputTokens ?? 0} out.\n` +
@@ -483,7 +486,9 @@ export default function piSubagent(pi: ExtensionAPI): void {
           // Recap mode defers the turn until every outstanding async agent has reported.
           trigger:
             !suspendingSummaries &&
-            (event.kind === "timeout" || (event.kind === "settled" && event.async && !recap)),
+            (event.kind === "timeout" ||
+              event.kind === "budget" ||
+              (event.kind === "settled" && event.async && !recap)),
           details: {
             mailboxId: randomUUID(),
             path: thread.path,
@@ -731,11 +736,10 @@ export default function piSubagent(pi: ExtensionAPI): void {
     context = undefined;
   });
   const agentSubcommands = ["tree", "settings", "types", "import", "reload", "reap"] as const;
-  const spawnModes = ["fork", "fresh"] as const;
-  /** `/agents fork:<type> <task>` inherits the main conversation; `fresh:` starts with no context. */
+  const spawnModes = ["fresh"] as const;
+  /** `/agents fresh:<type> <task>` starts a fresh child; fork inheritance was removed (agents never inherit conversation history). */
   const spawnFromCommand = async (
     ctx: ExtensionContext,
-    mode: (typeof spawnModes)[number],
     typeName: string,
     task: string,
   ) => {
@@ -750,25 +754,24 @@ export default function piSubagent(pi: ExtensionAPI): void {
     }
     const base = typeName.replace(/[^A-Za-z0-9_-]/g, "-").replace(/^[^A-Za-z0-9]+/, "") || "agent";
     const taken = new Set(current.list().map((thread) => thread.path));
-    const prefix = mode === "fork" ? "/root/" : "/";
+    const prefix = "/";
     let n = 1;
     while (taken.has(`${prefix}${base}-${n}`)) n++;
     const path = `${prefix}${base}-${n}`;
     try {
-      await current.scope("/root").spawn({ path, type: typeName, task, wait: false });
+      await current
+        .scope("/root")
+        .spawn({ path, type: typeName, task, wait: false, timeoutMs: 0, budgetTokens: 0 });
       persist();
       refreshWidget(ctx);
-      ctx.ui.notify(
-        `Started ${typeName} (${mode === "fork" ? "forked context" : "fresh context"}) at ${path}`,
-        "info",
-      );
+      ctx.ui.notify(`Started ${typeName} (fresh context) at ${path}`, "info");
     } catch (error) {
       ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
     }
   };
   pi.registerCommand("agents", {
     description:
-      "Configure agent settings, show the live tree, or run /agents fork:<agent> | fresh:<agent> <task>",
+      "Configure agent settings, show the live tree, or run /agents fresh:<agent> <task>",
     getArgumentCompletions: (argumentText) => {
       const text = argumentText.trimStart();
       const completed = text.match(/^(\S+)(\s+)([\s\S]*)$/);
@@ -790,7 +793,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
       }
       const lower = text.toLowerCase();
       const colon = lower.indexOf(":");
-      // "fo", "fork", "fork:", "fork:wo" -> every matching `fork:<agent>` / `fresh:<agent>`.
+      // "fo", "fork", "fork:", "fork:wo" -> kept matched so legacy `fork:` input does not fall through.
+      // "fr", "fresh", "fresh:", "fresh:wo" -> every matching `fresh:<agent>`.
       if (lower === "f")
         return spawnModes.map((mode) => ({ value: `${mode}:`, label: `${mode}:` }));
       const modes = spawnModes.filter((mode) =>
@@ -816,10 +820,16 @@ export default function piSubagent(pi: ExtensionAPI): void {
       const [command, ...rest] = args.trim().split(/\s+/);
       const spawnMatch = args.trim().match(/^(fork|fresh):(\S+)(?:\s+([\s\S]*))?$/);
       if (spawnMatch) {
+        if (spawnMatch[1] === "fork") {
+          ctx.ui.notify(
+            "Forked spawns were removed: agents always start fresh. Use /agents fresh:<agent> <task> and put the context you need into the task text.",
+            "warning",
+          );
+          return;
+        }
         const task = spawnMatch[3]?.trim();
-        if (!task)
-          ctx.ui.notify(`Usage: /agents ${spawnMatch[1]}:${spawnMatch[2]} <task>`, "warning");
-        else await spawnFromCommand(ctx, spawnMatch[1] as "fork" | "fresh", spawnMatch[2]!, task);
+        if (!task) ctx.ui.notify(`Usage: /agents fresh:${spawnMatch[2]} <task>`, "warning");
+        else await spawnFromCommand(ctx, spawnMatch[2]!, task);
       } else if (command === "import") {
         await importAgents(ctx, false);
       } else if (command === "types") {
@@ -896,7 +906,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
         );
       } else
         ctx.ui.notify(
-          "Usage: /agents [tree [path] | settings | types | import | reload | reap | fork:<agent> <task> | fresh:<agent> <task>]",
+          "Usage: /agents [tree [path] | settings | types | import | reload | reap | fresh:<agent> <task>]",
           "warning",
         );
     },

@@ -130,25 +130,19 @@ function fixture(extra: Partial<ManagerOptions> = {}) {
   return { manager, drivers, events, root };
 }
 
-test("spawn snapshots only lexical parent; independent roots have no root context", async () => {
+test("spawns are always fresh: no root snapshot, no parent transcript inheritance", async () => {
   const { manager, drivers, root } = fixture();
   await manager.spawn("/root", { path: "worker", type: "worker", task: "do work", wait: false });
   await tick();
-  assert.deepEqual(drivers.get("/root/worker")!.options.inherited, root);
+  assert.deepEqual(drivers.get("/root/worker")!.options.inherited, []);
   root.push(user("later root message"));
-  assert.equal(drivers.get("/root/worker")!.options.inherited.length, 1);
+  assert.equal(drivers.get("/root/worker")!.options.inherited.length, 0);
   await manager.spawn("/root", { path: "/k", type: "worker", task: "separate", wait: false });
   await tick();
   assert.deepEqual(drivers.get("/k")!.options.inherited, []);
   await manager.spawn("/root", { path: "/k/l", type: "worker", task: "nested", wait: false });
   await tick();
-  assert.deepEqual(
-    drivers.get("/k/l")!.options.inherited,
-    [user("separate")].map((message) => ({
-      ...message,
-      timestamp: drivers.get("/k")!.messages[0].timestamp,
-    })),
-  );
+  assert.deepEqual(drivers.get("/k/l")!.options.inherited, []);
   assert.equal(
     drivers.get("/k/l")!.options.parentSessionFile,
     drivers.get("/k")!.driver.sessionFile,
@@ -234,7 +228,7 @@ test("concurrent steer after failed startup reserves one restart and queues the 
 test("nested child reopens its parent first; a failed parent open is retried later", async () => {
   let rejectParentOpen!: (error: Error) => void;
   let parentAttempts = 0;
-  const childInherited: AgentMessage[][] = [];
+  const childSpawns: AgentMessage[][] = [];
   const parent = gated({ sessionFile: "/tmp/worker.jsonl" });
   parent.driver.snapshot = () => parent.runs.map((text) => ({ ...user(text), timestamp: 0 }));
   const child = gated();
@@ -245,7 +239,7 @@ test("nested child reopens its parent first; a failed parent open is retried lat
           return new Promise<AgentDriver>((_resolve, reject) => (rejectParentOpen = reject));
         return parent.driver;
       }
-      childInherited.push(structuredClone(options.inherited));
+      childSpawns.push(structuredClone(options.inherited));
       return child.driver;
     },
   });
@@ -257,9 +251,10 @@ test("nested child reopens its parent first; a failed parent open is retried lat
     task: "nested",
     wait: false,
   });
+  await tick();
   rejectParentOpen(new Error("parent unavailable"));
   assert.equal((await manager.wait("/root", "worker/child")).state, "failed");
-  assert.equal(childInherited.length, 0);
+  assert.equal(childSpawns.length, 0);
 
   await manager.steer("/root", "worker", "resume parent");
   await tick();
@@ -268,34 +263,33 @@ test("nested child reopens its parent first; a failed parent open is retried lat
   await manager.steer("/root", "worker/child", "resume child");
   await tick();
   assert.equal(parentAttempts, 2);
-  assert.deepEqual(childInherited, [parent.driver.snapshot()]);
+  assert.deepEqual(childSpawns, [[]]);
   child.release();
   assert.equal((await manager.wait("/root", "worker/child")).state, "completed");
   await manager.shutdown();
 });
 
-test("restored nested child opens parent first but keeps its saved inherited snapshot", async () => {
+test("restored nested child opens parent first but starts with no inherited history", async () => {
   const order: string[] = [];
-  const childInherited: AgentMessage[][] = [];
-  const savedChildSnapshot = [user("saved child snapshot")];
+  const childSpawns: AgentMessage[][] = [];
   const child = gated();
   const { manager } = fixture({
     createDriver: async (options) => {
       order.push(options.path);
       if (options.path === "/root/parent")
         return gated({ prompt: async () => {}, snapshot: () => [user("live parent")] }).driver;
-      childInherited.push(structuredClone(options.inherited));
+      childSpawns.push(structuredClone(options.inherited));
       return child.driver;
     },
   });
   manager.restore([
     saved("/root/parent", { sessionFile: "/tmp/saved-parent.jsonl" }),
-    saved("/root/parent/child", {}, { inherited: savedChildSnapshot }),
+    saved("/root/parent/child", {}),
   ]);
   await manager.steer("/root", "parent/child", "resume child");
   await tick();
   assert.deepEqual(order, ["/root/parent", "/root/parent/child"]);
-  assert.deepEqual(childInherited, [savedChildSnapshot]);
+  assert.deepEqual(childSpawns, [[]]);
   child.release();
   assert.equal((await manager.wait("/root", "parent/child")).state, "completed");
   await manager.shutdown();
@@ -414,14 +408,14 @@ test("save/restore retains definition snapshot and reopens JSONL on resume", asy
   assert.equal(third.drivers.get("/root/worker")!.messages.at(-1)?.role, "user");
   assert.match(JSON.stringify(third.drivers.get("/root/worker")!.messages), /child progress/);
   const inspected = JSON.parse(await third.manager.transcript("/root", "worker/child"));
-  assert.deepEqual(inspected, third.drivers.get("/root/worker")!.messages);
-  assert.deepEqual(third.drivers.get("/root/worker/child")!.options.inherited, inspected);
+  assert.deepEqual(inspected, []); // fresh child: opens with no inherited transcript
+  assert.deepEqual(third.drivers.get("/root/worker/child")!.options.inherited, []);
   await third.manager.steer("/root", "worker", "resume");
   await tick();
   assert.equal(third.drivers.get("/root/worker")!.options.sessionFile, saved[0].view.sessionFile);
   await third.manager.steer("/root", "worker/child", "resume child");
   await tick();
-  assert.deepEqual(third.drivers.get("/root/worker/child")!.options.inherited, inspected);
+  assert.deepEqual(third.drivers.get("/root/worker/child")!.options.inherited, []);
   third.drivers.get("/root/worker/child")!.finish();
   await third.manager.wait("/root", "worker/child");
   third.drivers.get("/root/worker")!.finish();
@@ -843,4 +837,85 @@ test("shutdown awaits asynchronous driver disposal", async () => {
   release();
   await shutdown;
   assert.equal(finished, true);
+});
+
+test("budget overrun stops the child and emits a budget event with the spent total", async () => {
+  let released = false;
+  const { manager, events } = fixture({
+    createDriver: async (options) =>
+      gated({
+        prompt: async () => {
+          options.onEvent({ kind: "usage", inputTokens: 30, outputTokens: 1 });
+          await new Promise<void>((resolve) => {
+            setImmediate(() => {
+              released = true;
+              resolve();
+            });
+          });
+        },
+      }).driver,
+  });
+  await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "work",
+    wait: false,
+    timeoutMs: 0,
+    budgetTokens: 20,
+  });
+  await tick();
+  const budget = events.find((event) => event.kind === "budget") as Extract<
+    (typeof events)[number],
+    { kind: "budget" }
+  >;
+  assert.ok(budget, "budget event emitted while the prompt is in flight");
+  assert.equal(budget.thread.path, "/root/worker");
+  assert.equal(budget.recipient, "/root");
+  assert.equal(budget.budgetTokens, 20);
+  assert.equal(budget.spentTokens, 30);
+  assert.equal(typeof budget.recentOutput, "string");
+  const view = await manager.wait("/root", "worker");
+  assert.ok(released, "budget enforcement aborted the hung prompt");
+  assert.equal(view.state, "stopped");
+  assert.match(view.status, /Stopped/);
+  assert.equal(view.inputTokens, 30);
+  assert.equal(view.output, undefined, "budget stop deletes the output like a user stop");
+  await manager.shutdown();
+});
+
+test("budgetTokens 0 resolves to the 2M default and tiny overruns do not trigger", async () => {
+  const { manager, drivers } = fixture();
+  await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "work",
+    wait: false,
+    timeoutMs: 0,
+    budgetTokens: 0,
+  });
+  await tick();
+  const record = manager.saved()[0]!;
+  assert.equal(record.view.budgetTokens, 2_000_000);
+  assert.equal(
+    (drivers.get("/root/worker")! as unknown as { options?: unknown }).options === undefined,
+    false,
+  );
+  await manager.shutdown();
+});
+
+test("negative and non-integer budgets are rejected", async () => {
+  const { manager } = fixture();
+  for (const bad of [-1, 1.5, Number.NaN])
+    await assert.rejects(
+      manager.spawn("/root", {
+        path: `bad${bad}`,
+        type: "worker",
+        task: "work",
+        wait: false,
+        timeoutMs: 0,
+        budgetTokens: bad,
+      }),
+      /budgetTokens must be a non-negative integer/,
+    );
+  await manager.shutdown();
 });

@@ -4,6 +4,22 @@ Generated from version tags and merged GitHub pull requests. Do not edit this fi
 
 ## 0.x — Pre-1.0 releases
 
+### [v0.31.0] — Safety redesign (local fork, 2026-10-22)
+
+> Local fork of v0.30.0 (SeniorHan/pi-subagent-manager). Not published upstream.
+
+#### Breaking changes
+- **Removed fork inheritance.** Every spawned agent now starts fresh: `agent_spawn` never injects parent conversation history, and the `/root/` path prefix is pure naming. The `/agents fork:<agent>` slash command notifies that forked spawns were removed and points to `fresh:`. Rationale: inherited context multiplied per-turn token cost (a 280K parent context was re-read every turn, up to 200× a fresh run for the same task) and made the child believe it was the main thread.
+
+#### Added
+- **Required `budgetTokens` on `agent_spawn`** (input tokens). `0` resolves to the default 2,000,000-token cap — there is no "no cap" state. When a child exceeds its budget the manager stops it (session retained) and emits a `budget` event to the parent with the spent total and recent output.
+- **`budgetTokens` is persisted** with saved sessions, so reloaded threads keep their cap.
+
+#### Changed
+- **`timeoutMs` is now required on `agent_spawn`** (report-only supervision timer, never stops the child). `0` resolves to a 60 s default; valid range 0–300000 ms. Previously omitting it armed no timer at all, so an unsupervised child could spin for minutes (observed: 223 s) before anyone noticed. `agent_steer` timeout re-arms also accept `0` for the 60 s default.
+- Docs and prompts now teach fresh-only spawning and the required supervision parameters.
+
+
 ### [v0.30.0](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.30.0) — Minor release (2026-10-22)
 
 <!-- Release notes generated using configuration in .github/release.yml at v0.30.0 -->
