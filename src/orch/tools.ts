@@ -81,7 +81,7 @@ export function agentTools(
     ),
     make(
       "agent_spawn",
-      "Spawn a named child agent. The child receives only its own task prompt and the agent type's prompt. To hand over context, write a self-contained brief (decisions, paths, file locations) into the task, or point the child at files. Foreground waits by default; wait:false runs detached: when it completes, fails or is stopped, you receive a message event that wakes you, so do not poll. Required timeoutMs (ms; 0 = 60s default): report-only supervision — when it fires you get an event with the child's state, elapsed time, tokens and recent output; the child is NOT stopped; re-arm with agent_steer({path, timeoutMs}). Required budgetTokens (0 = 2,000,000 input-token default): when the child's cumulative input tokens exceed this budget it is stopped and you get an event with its recent output; its session stays readable via agent_output. For parallel work, spawn every independent sibling with wait:false before calling agent_wait; child agents with delegation tools should do the same. Existing paths are retained and can be resumed with agent_steer. Use agent_types to discover current types.",
+      "Spawn a named child agent. The child receives only its own task prompt and the agent type's prompt. To hand over context, write a self-contained brief (decisions, paths, file locations) into the task, or point the child at files. Foreground waits by default; wait:false runs detached: when it completes, fails or is stopped, you receive a message event that wakes you, so do not poll. Required timeout (seconds; 0 = 60s default): report-only supervision — when it fires you get an event with the child's state, elapsed time, tokens and recent output; the child is NOT stopped; re-arm with agent_steer({path, timeout}). Required budgetTokens (0 = 2,000,000 input-token default): when the child's cumulative input tokens exceed this budget it is stopped and you get an event with its recent output; its session stays readable via agent_output. For parallel work, spawn every independent sibling with wait:false before calling agent_wait; child agents with delegation tools should do the same. Existing paths are retained and can be resumed with agent_steer. Use agent_types to discover current types.",
       Type.Object({
         path: Type.String({
           description:
@@ -90,11 +90,11 @@ export function agentTools(
         type: text,
         task: text,
         wait: Type.Optional(Type.Boolean()),
-        timeoutMs: Type.Integer({
+        timeout: Type.Integer({
           minimum: 0,
-          maximum: 300000,
+          maximum: 300,
           description:
-            "Required: report-only supervision timer in ms; 0 = 60s default. If the child is still running after this many ms you receive a status event (state, elapsed time, tokens, recent output); the child keeps running.",
+            "Required: report-only supervision timer in seconds (never aborts the child); 0 = 60s default. If the child is still running after this many seconds you receive a status event (state, elapsed time, tokens, recent output).",
         }),
         budgetTokens: Type.Integer({
           minimum: 0,
@@ -109,14 +109,21 @@ export function agentTools(
       "Wait for a descendant to complete, fail, stop or pause. Paused means no final answer handback. Cancellation/timeouts do not stop the child; poll status or wait again.",
       Type.Object({
         path,
-        timeoutMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 3600000 })),
+        maxWait: Type.Optional(
+          Type.Integer({
+            minimum: 0,
+            maximum: 3600,
+            description:
+              "Caller-side wait cap in seconds; 0 returns the current snapshot immediately. Omit to wait indefinitely. Elapsing does not stop the child; poll agent_status or wait again.",
+          }),
+        ),
       }),
       async (params, signal) =>
-        result(compact(await threads().wait(params.path, params.timeoutMs, signal))),
+        result(compact(await threads().wait(params.path, params.maxWait, signal))),
     ),
     make(
       "agent_steer",
-      'Send input to a descendant and/or re-arm its report-only timeout. With message: working threads receive queued steering; completed, stopped and paused threads resume the SAME session with its previous context. With timeoutMs (0 = 60s default, or 30000–300000): the timeout fires that many ms from now, replacing any pending timer. To extend a running background agent\'s reporting timer without sending input, call agent_steer({path: "/root/task", timeoutMs: 120000}) and omit message entirely. This resets the timer to 120000 ms from now, not an addition to the old deadline. timeoutMs WITHOUT message only re-arms the timeout of a running child (error if not running) and does not steer, interrupt or resume it; with both, steer and re-arm. At least one is required. Returns immediately; use agent_wait for the result.',
+      'Send input to a descendant and/or re-arm its report-only timeout. With message: working threads receive queued steering; completed, stopped and paused threads resume the SAME session with its previous context. With timeout (seconds; 0 = 60s default, up to 300): the timer fires that many seconds from now, replacing any pending timer. To extend a running background agent\'s reporting timer without sending input, call agent_steer({path: "/root/task", timeout: 120}) and omit message entirely. This resets the timer to 120 seconds from now, not an addition to the old deadline. timeout WITHOUT message only re-arms the timeout of a running child (error if not running) and does not steer, interrupt or resume it; with both, steer and re-arm. At least one is required. Returns immediately; use agent_wait for the result.',
       Type.Object({
         path,
         message: Type.Optional(
@@ -125,17 +132,17 @@ export function agentTools(
             description: "Input to send or resume with. Omit entirely for a timer-only re-arm.",
           }),
         ),
-        timeoutMs: Type.Optional(
+        timeout: Type.Optional(
           Type.Integer({
             minimum: 0,
-            maximum: 300000,
+            maximum: 300,
             description:
-              "Reset the report-only timer to this many ms from now, replacing any pending timer; 0 = 60s default. With no message, only re-arms a running agent; does not send input, interrupt or resume it.",
+              "Reset the report-only timer to this many seconds from now (never aborts the child), replacing any pending timer; 0 = 60s default. With no message, only re-arms a running agent; does not send input, interrupt or resume it.",
           }),
         ),
       }),
       async (params) =>
-        result(compact(await threads().steer(params.path, params.message, params.timeoutMs))),
+        result(compact(await threads().steer(params.path, params.message, params.timeout))),
     ),
     make(
       "agent_status",

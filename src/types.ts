@@ -205,14 +205,16 @@ export interface ThreadService {
       type: string;
       task: string;
       wait?: boolean;
-      timeoutMs?: number;
+      /** Report-only supervision timeout in seconds; 0 = 60s default. Never aborts the child. */
+      timeout?: number;
       budgetTokens?: number;
     },
     signal?: AbortSignal,
   ): Promise<ThreadView>;
-  /** message and/or timeoutMs (30s–5min). timeoutMs alone only re-arms a running child's report-only timeout. */
-  steer(path: string, message?: string, timeoutMs?: number): Promise<ThreadView>;
-  wait(path: string, timeoutMs?: number, signal?: AbortSignal): Promise<ThreadView>;
+  /** message and/or timeout (seconds, 0–300; 0 = 60s default). timeout alone only re-arms a running child's report-only timer. */
+  steer(path: string, message?: string, timeout?: number): Promise<ThreadView>;
+  /** Caller-side wait cap in seconds (0–3600); 0 returns the current snapshot immediately. */
+  wait(path: string, maxWait?: number, signal?: AbortSignal): Promise<ThreadView>;
   update(message: string): ThreadView;
   pause(reason: string): ThreadView;
   stop(path: string): Promise<ThreadView>;
@@ -228,7 +230,8 @@ export type ThreadEvent =
       kind: "timeout";
       thread: ThreadView;
       recipient: string;
-      timeoutMs: number;
+      /** Effective supervision timeout in seconds (60 for the default). */
+      timeout: number;
       recentOutput: string;
     }
   /** The child exceeded its input-token budget and was stopped; its session is retained. */

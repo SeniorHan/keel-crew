@@ -35,8 +35,8 @@ function setup() {
       };
     },
   });
-  const spawn = (path: string, timeoutMs?: number) =>
-    manager.spawn("/root", { path, type: "w", task: "task", wait: false, timeoutMs });
+  const spawn = (path: string, timeout?: number) =>
+    manager.spawn("/root", { path, type: "w", task: "task", wait: false, timeout });
   const timeouts = () => events.filter((e) => e.kind === "timeout");
   const flush = () => new Promise<void>((r) => setImmediate(r));
   return { manager, events, gates, spawn, timeouts, flush };
@@ -45,7 +45,7 @@ function setup() {
 test("timeout reports state to the parent without stopping the child", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const { manager, gates, spawn, timeouts, flush } = setup();
-  await spawn("a", 30_000);
+  await spawn("a", 30);
   await flush();
   t.mock.timers.tick(29_999);
   assert.equal(timeouts().length, 0);
@@ -53,7 +53,7 @@ test("timeout reports state to the parent without stopping the child", async (t)
   const [event] = timeouts() as Extract<ThreadEvent, { kind: "timeout" }>[];
   assert.equal(event!.thread.state, "running");
   assert.equal(event!.recipient, "/root");
-  assert.equal(event!.timeoutMs, 30_000);
+  assert.equal(event!.timeout, 30);
   assert.match(event!.recentOutput, /partial work/);
   assert.equal(manager.get("a").state, "running", "child keeps running");
   gates[0]!();
@@ -64,7 +64,7 @@ test("timeout reports state to the parent without stopping the child", async (t)
 test("timer is cleared on completion, failure, stop and shutdown", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const { manager, gates, spawn, timeouts, flush } = setup();
-  for (const name of ["done", "failed", "stopped", "alive"]) await spawn(name, 60_000);
+  for (const name of ["done", "failed", "stopped", "alive"]) await spawn(name, 60);
   await flush();
   gates[0]!();
   gates[1]!(new Error("boom"));
@@ -77,40 +77,40 @@ test("timer is cleared on completion, failure, stop and shutdown", async (t) => 
     ["/root/alive"],
     "only the live child reports",
   );
-  await spawn("late", 60_000);
+  await spawn("late", 60);
   await manager.shutdown();
   t.mock.timers.tick(120_000);
   assert.equal(timeouts().length, 1, "shutdown clears pending timers");
 });
 
-test("steer timeoutMs-only re-arms from now; invalid ranges are rejected; 0 re-arms at the default", async (t) => {
+test("steer timeout-only re-arms from now; invalid ranges are rejected; 0 re-arms at the default", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const { manager, gates, spawn, timeouts, flush } = setup();
-  for (const bad of [-1, 300_001, 1.5, Number.NaN])
-    await assert.rejects(spawn(`bad${bad}`, bad), /timeoutMs must be an integer between 0/);
+  for (const bad of [-1, 301, 1.5, Number.NaN])
+    await assert.rejects(spawn(`bad${bad}`, bad), /timeout must be an integer between 0/);
   await spawn("plain");
-  await spawn("a", 30_000);
+  await spawn("a", 30);
   await flush();
   t.mock.timers.tick(20_000);
-  for (const bad of [-1, 300_001])
+  for (const bad of [-1, 301])
     await assert.rejects(manager.steer("/root", "a", undefined, bad), /between 0/);
-  await manager.steer("/root", "a", undefined, 60_000);
+  await manager.steer("/root", "a", undefined, 60);
   t.mock.timers.tick(59_999);
   assert.equal(timeouts().filter((e) => e.thread.path === "/root/a").length, 0, "old deadline replaced");
   t.mock.timers.tick(1);
   assert.deepEqual(
-    timeouts().filter((e) => e.thread.path === "/root/a").map((e) => e.timeoutMs),
-    [60_000],
+    timeouts().filter((e) => e.thread.path === "/root/a").map((e) => e.timeout),
+    [60],
   );
   assert.deepEqual(
-    timeouts().filter((e) => e.thread.path === "/root/plain").map((e) => e.timeoutMs),
-    [60_000],
+    timeouts().filter((e) => e.thread.path === "/root/plain").map((e) => e.timeout),
+    [60],
     "plain child fires at the 60s default",
   );
   gates.forEach((g) => g());
   await manager.wait("/root", "a");
-  await assert.rejects(manager.steer("/root", "a", undefined, 30_000), /working agent/);
-  await assert.rejects(manager.steer("/root", "a"), /message, timeoutMs, or both/);
+  await assert.rejects(manager.steer("/root", "a", undefined, 30), /working agent/);
+  await assert.rejects(manager.steer("/root", "a"), /message, timeout, or both/);
   await manager.shutdown();
 });
 
@@ -128,7 +128,7 @@ test("settled events flag detached spawns; outstandingAsync tracks them", async 
   await manager.shutdown();
 });
 
-test("tool schemas expose timeoutMs/budgetTokens and steer timeoutMs with report-only bounds", () => {
+test("tool schemas expose timeout/budgetTokens and steer timeout with report-only bounds", () => {
   const tools = agentTools(
     () => ({}) as any,
     "/root",
@@ -136,26 +136,26 @@ test("tool schemas expose timeoutMs/budgetTokens and steer timeoutMs with report
     () => ({}) as any,
   );
   const spawn = tools.find((t) => t.name === "agent_spawn")!;
-  const timeout = (spawn.parameters as any).properties.timeoutMs;
+  const timeout = (spawn.parameters as any).properties.timeout;
   assert.equal(timeout.minimum, 0);
-  assert.equal(timeout.maximum, 300000);
-  assert.deepEqual((spawn.parameters as any).required, ["path", "type", "task", "timeoutMs", "budgetTokens"]);
+  assert.equal(timeout.maximum, 300);
+  assert.deepEqual((spawn.parameters as any).required, ["path", "type", "task", "timeout", "budgetTokens"]);
   const budget = (spawn.parameters as any).properties.budgetTokens;
   assert.equal(budget.minimum, 0);
   assert.equal(tools.find((t) => t.name === "agent_extend_timeout"), undefined);
   const steer = tools.find((t) => t.name === "agent_steer")!;
-  assert.equal((steer.parameters as any).properties.timeoutMs.minimum, 0);
-  assert.equal((steer.parameters as any).properties.timeoutMs.maximum, 300000);
+  assert.equal((steer.parameters as any).properties.timeout.minimum, 0);
+  assert.equal((steer.parameters as any).properties.timeout.maximum, 300);
   assert.deepEqual((steer.parameters as any).required, ["path"]);
 });
 
-test("steer with message and timeoutMs steers and re-arms", async (t) => {
+test("steer with message and timeout steers and re-arms", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const { manager, gates, spawn, timeouts, flush } = setup();
-  await spawn("a", 30_000);
+  await spawn("a", 30);
   await flush();
   t.mock.timers.tick(20_000);
-  await manager.steer("/root", "a", "keep going", 60_000);
+  await manager.steer("/root", "a", "keep going", 60);
   t.mock.timers.tick(59_999);
   assert.equal(timeouts().length, 0);
   t.mock.timers.tick(1);
@@ -172,7 +172,7 @@ test("steering and timer-only rearming leave a running foreground spawn foregrou
     await flush();
     assert.equal(manager.outstandingAsync(), 0);
     await manager.steer("/root", "fg", "queued steering");
-    await manager.steer("/root", "fg", undefined, 30_000);
+    await manager.steer("/root", "fg", undefined, 30);
     assert.equal(manager.outstandingAsync(), 0, "neither operation detaches the current run");
     t.mock.timers.tick(30_000);
     assert.equal(timeouts().length, 1, "report-only timer still reports");

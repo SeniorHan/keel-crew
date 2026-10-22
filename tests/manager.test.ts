@@ -860,7 +860,7 @@ test("budget overrun stops the child and emits a budget event with the spent tot
     type: "worker",
     task: "work",
     wait: false,
-    timeoutMs: 0,
+    timeout: 0,
     budgetTokens: 20,
   });
   await tick();
@@ -890,7 +890,7 @@ test("budgetTokens 0 resolves to the 2M default and tiny overruns do not trigger
     type: "worker",
     task: "work",
     wait: false,
-    timeoutMs: 0,
+    timeout: 0,
     budgetTokens: 0,
   });
   await tick();
@@ -912,7 +912,7 @@ test("negative and non-integer budgets are rejected", async () => {
         type: "worker",
         task: "work",
         wait: false,
-        timeoutMs: 0,
+        timeout: 0,
         budgetTokens: bad,
       }),
       /budgetTokens must be a non-negative integer/,

@@ -98,7 +98,7 @@ const spawnPair = (names: string[]): AssistantMessage => ({
     type: "toolCall",
     id: `spawn-${path}`,
     name: "agent_spawn",
-    arguments: { path, type: "coordinator", task: "Coordinate", wait: true, timeoutMs: 0, budgetTokens: 0 },
+    arguments: { path, type: "coordinator", task: "Coordinate", wait: true, timeout: 0, budgetTokens: 0 },
   })),
 });
 
@@ -174,7 +174,7 @@ test("extension reload applies manager settings without reopening the parent", a
           type: "coordinator",
           task: "Work",
           wait: true,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           });
       await assert.rejects(spawn(), /depth limit/);

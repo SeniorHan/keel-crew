@@ -99,7 +99,7 @@ text("CHILD_TOOL_PARITY_OK");`;
       extensionFactories: [external, createCodemodeExtension(), createToolSearchExtension()],
       onRequest(request) {
         if (!request.path) return request.pathCall === 1
-          ? reply("agent_spawn", { path: "probe", type: "worker", task: "Test", wait: true, timeoutMs: 0, budgetTokens: 0 }) : reply();
+          ? reply("agent_spawn", { path: "probe", type: "worker", task: "Test", wait: true, timeout: 0, budgetTokens: 0 }) : reply();
         if (request.pathCall === 1) {
           assert.ok(request.toolNames.includes("codemode"));
           assert.ok(request.toolNames.includes("extension_echo"));
@@ -151,10 +151,10 @@ test("detached children and grandchildren inherit tools while unsafe model-only 
     ],
     onRequest(request) {
       if (!request.path) return request.pathCall === 1
-        ? reply("agent_spawn", { path: "detached", type: "worker", task: "Test", wait: false, timeoutMs: 0, budgetTokens: 0 }) : reply();
+        ? reply("agent_spawn", { path: "detached", type: "worker", task: "Test", wait: false, timeout: 0, budgetTokens: 0 }) : reply();
       assert.ok(request.toolNames.includes("model_only_context"));
       if (request.path === "/root/detached") {
-        if (request.pathCall === 1) return reply("agent_spawn", { path: "nested", type: "worker", task: "Test", wait: true, timeoutMs: 0, budgetTokens: 0 });
+        if (request.pathCall === 1) return reply("agent_spawn", { path: "nested", type: "worker", task: "Test", wait: true, timeout: 0, budgetTokens: 0 });
         assert.match(request.messagesText, /"path":"\/root\/detached\/nested"/);
         return reply();
       }
@@ -174,7 +174,7 @@ test("detached children and grandchildren inherit tools while unsafe model-only 
     const session = await open(SessionManager.create(cwd));
     session.setActiveToolsByName([...session.getActiveToolNames(), "codemode", "model_only_context"]);
     await session.prompt("Check detached inheritance");
-    const result = await tool<{ state: string }>(session, "agent_wait", { path: "detached", timeoutMs: 5000 });
+    const result = await tool<{ state: string }>(session, "agent_wait", { path: "detached", maxWait: 5 });
     assert.equal(result.state, "completed");
     assert.deepEqual(seen, ["ping"]);
     assert.deepEqual(errors, []);

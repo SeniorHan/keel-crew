@@ -57,7 +57,7 @@ for (const earlyChildren of [2, 1, 0]) {
           ...answer(""), stopReason: "toolUse",
           content: [0, 1].map((i) => ({ type: "toolCall" as const, id: `spawn-${i}`, name: "agent_spawn", arguments: {
             path: `worker-${i}`, type: "worker", task: `Run parallel task ${i}`, wait: false,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           } })),
         };
@@ -193,7 +193,7 @@ test("off keeps running work but suppresses its notifications until re-enabled",
         ...answer(""), stopReason: "toolUse",
         content: [{ type: "toolCall", id: "background", name: "agent_spawn", arguments: {
           path: "background", type: "worker", task: "Finish retained work", wait: false,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           } }],
       };
@@ -232,7 +232,7 @@ test("streaming notifications stay in the mailbox, do not duplicate on reload, a
         ...answer(""), stopReason: "toolUse",
         content: [{ type: "toolCall", id: "streaming", name: "agent_spawn", arguments: {
           path: "background", type: "worker", task: "Finish during root streaming", wait: false,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           } }],
       };
@@ -282,7 +282,7 @@ test("enabled streaming mailbox is delivered once at agent settlement and wakes 
         ...answer(""), stopReason: "toolUse",
         content: [{ type: "toolCall", id: "settled", name: "agent_spawn", arguments: {
           path: "background", type: "worker", task: "Finish while root works", wait: false,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           } }],
       };
@@ -322,7 +322,7 @@ test("orchestration restricts /root's prompt, not the child worker's prompt", { 
         stopReason: "toolUse",
         content: [{ type: "toolCall", id: "delegate", name: "agent_spawn", arguments: {
           path: "task", type: "worker", task: "Execute a small sequential task", wait: true,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           } }],
       };

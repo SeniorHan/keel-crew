@@ -111,7 +111,7 @@ test(
                 type: "worker",
                 task: "First run",
                 wait: true,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           })
             : answer(0.02, "Main answer");
@@ -188,7 +188,7 @@ test(
           type: "worker",
           task: "Replacement run",
           wait: true,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           });
         await tool(session, "agent_wait", { path: "worker" });
@@ -226,7 +226,7 @@ test(
           type: "worker",
           task: "Parent work",
           wait: true,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           });
         await tool(session, "agent_wait", { path: "team" });
@@ -235,7 +235,7 @@ test(
           type: "worker",
           task: "Nested work",
           wait: true,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           });
         await tool(session, "agent_wait", { path: "team/child" });
@@ -285,7 +285,7 @@ test(
           type: "worker",
           task: "Pause",
           wait: true,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           });
         await tool(session, "agent_wait", { path: "worker" });
@@ -347,7 +347,7 @@ test(
           type: "worker",
           task: "Continue until stopped",
           wait: true,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           });
         await pendingStarted;

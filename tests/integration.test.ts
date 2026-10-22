@@ -89,7 +89,7 @@ test(
           path: "worker",
           type: "offline",
           task: "Pause until more input",
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           });
         assert.equal(paused.state, "paused");
@@ -306,7 +306,7 @@ test(
           path: CHILD_PATH,
           type: "offline",
           task: "Draft a nested follow-up",
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           });
         assert.equal(spawned.state, "completed");
@@ -418,7 +418,7 @@ test(
           path: "worker",
           type: "offline",
           task: "Produce the first answer",
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           });
         assert.equal(first.state, "completed");

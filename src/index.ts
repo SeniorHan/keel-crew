@@ -417,7 +417,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
                   content:
                     "Asynchronous subagent event(s) arrived (see the preceding subagent notifications). " +
                     "Collect results with agent_output and continue any unfinished work; recap when the overall task is complete. " +
-                    "For a timeout event decide to wait, steer, stop or re-arm with agent_steer using path and timeoutMs only " +
+                    "For a timeout event decide to wait, steer, stop or re-arm with agent_steer using path and timeout only " +
                     "(omit message; resets the reporting timer from now without interrupting the running agent).",
                   display: false,
                   details: {},
@@ -461,11 +461,11 @@ export default function piSubagent(pi: ExtensionAPI): void {
           ? `Agent ${thread.path} exhausted its input-token budget (${event.spentTokens} > ${event.budgetTokens}) and was stopped; its session is retained (read it with agent_output).\n` +
             `Recent output:\n${event.recentOutput || "(none yet)"}`
           : event.kind === "timeout"
-          ? `Agent ${thread.path} hit its ${fmtMs(event.timeoutMs)} spawn timeout and is STILL RUNNING (not stopped). ` +
+          ? `Agent ${thread.path} hit its ${event.timeout}s spawn timeout and is STILL RUNNING (not stopped). ` +
             `State: ${thread.state}; status: ${thread.status}; elapsed: ${fmtMs(elapsed)}; ` +
             `tokens: ${thread.inputTokens ?? 0} in / ${thread.outputTokens ?? 0} out.\n` +
             `Recent output:\n${event.recentOutput || "(none yet)"}\n` +
-            "Decide: agent_steer with timeoutMs only (no message) to be notified again later without disturbing it, agent_wait for it, agent_steer to redirect, agent_stop to cancel, or let it continue."
+            "Decide: agent_steer with timeout only (no message) to be notified again later without disturbing it, agent_wait for it, agent_steer to redirect, agent_stop to cancel, or let it continue."
           : thread.state === "completed"
             ? `Agent ${thread.path} completed. Final answer:\n${thread.output?.slice(0, 16000) ?? "(no text)"}${(thread.output?.length ?? 0) > 16000 ? "\n[Output truncated; use agent_output for more.]" : ""}`
             : `Agent ${thread.path} is ${thread.state}: ${thread.status}. ${thread.state === "paused" ? "No answer handback; send input to resume the same session." : "Session retained for further input."}`;
@@ -761,7 +761,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
     try {
       await current
         .scope("/root")
-        .spawn({ path, type: typeName, task, wait: false, timeoutMs: 0, budgetTokens: 0 });
+        .spawn({ path, type: typeName, task, wait: false, timeout: 0, budgetTokens: 0 });
       persist();
       refreshWidget(ctx);
       ctx.ui.notify(`Started ${typeName} (fresh context) at ${path}`, "info");

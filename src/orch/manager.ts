@@ -53,20 +53,20 @@ interface Record {
 const RECENT_ACTIVITY_LIMIT = 12;
 const active = (view: Pick<ThreadView, "state">) =>
   view.state === "starting" || view.state === "running";
-export const MIN_SPAWN_TIMEOUT_MS = 30_000;
-export const MAX_SPAWN_TIMEOUT_MS = 300_000;
-/** Spawn timeoutMs = 0 resolves to this report-only supervision default. */
+export const MAX_SPAWN_TIMEOUT_S = 300;
+/** Report-only supervision timer default, in ms (timeout = 0 resolves to this). */
 export const DEFAULT_SPAWN_TIMEOUT_MS = 60_000;
+/** Spawn timeout = 0 resolves to this report-only supervision default. */
 /** Spawn budgetTokens = 0 resolves to this cumulative input-token budget. */
 export const DEFAULT_BUDGET_TOKENS = 2_000_000;
-function assertSpawnTimeout(timeoutMs: number): void {
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > MAX_SPAWN_TIMEOUT_MS)
+function assertSpawnTimeout(timeout: number): void {
+  if (!Number.isInteger(timeout) || timeout < 0 || timeout > MAX_SPAWN_TIMEOUT_S)
     throw new Error(
-      `timeoutMs must be an integer between 0 and ${MAX_SPAWN_TIMEOUT_MS} (5min); 0 uses the ${DEFAULT_SPAWN_TIMEOUT_MS / 1000}s default`,
+      `timeout must be an integer between 0 and ${MAX_SPAWN_TIMEOUT_S} (seconds); 0 uses the ${DEFAULT_SPAWN_TIMEOUT_MS / 1000}s default`,
     );
 }
-function resolveTimeoutMs(timeoutMs: number): number {
-  return timeoutMs === 0 ? DEFAULT_SPAWN_TIMEOUT_MS : timeoutMs;
+function timeoutToMs(timeout: number): number {
+  return timeout === 0 ? DEFAULT_SPAWN_TIMEOUT_MS : timeout * 1000;
 }
 function assertBudgetTokens(budgetTokens: number): void {
   if (!Number.isInteger(budgetTokens) || budgetTokens < 0)
@@ -178,8 +178,8 @@ export class ThreadManager {
       transcript: (path) => this.transcript(caller, path),
       observeTranscript: (path, listener) => this.observeTranscript(caller, path, listener),
       spawn: (args, signal) => this.spawn(caller, args, signal),
-      steer: (path, message, timeoutMs) => this.steer(caller, path, message, timeoutMs),
-      wait: (path, timeoutMs, signal) => this.wait(caller, path, timeoutMs, signal),
+      steer: (path, message, timeout) => this.steer(caller, path, message, timeout),
+      wait: (path, maxWait, signal) => this.wait(caller, path, maxWait, signal),
       update: (message) => this.update(caller, message),
       pause: (reason) => this.pause(caller, reason),
       stop: (path) => this.stop(caller, path),
@@ -304,7 +304,7 @@ export class ThreadManager {
       type: string;
       task: string;
       wait?: boolean;
-      timeoutMs?: number;
+      timeout?: number;
       budgetTokens?: number;
     },
     signal?: AbortSignal,
@@ -312,8 +312,8 @@ export class ThreadManager {
     this.assertLive();
     // Tool callers must pass both explicitly (required in the agent_spawn schema); direct
     // API callers get the same safe defaults as an explicit 0: always supervised, always capped.
-    if (args.timeoutMs !== undefined) assertSpawnTimeout(args.timeoutMs);
-    const timeoutMs = resolveTimeoutMs(args.timeoutMs ?? 0);
+    if (args.timeout !== undefined) assertSpawnTimeout(args.timeout);
+    const timeoutMs = timeoutToMs(args.timeout ?? 0);
     if (args.budgetTokens !== undefined) assertBudgetTokens(args.budgetTokens);
     const budgetTokens = resolveBudgetTokens(args.budgetTokens ?? 0);
     caller = canonicalPath(caller);
@@ -383,27 +383,27 @@ export class ThreadManager {
 
   /**
    * Steer/resume a thread and/or re-arm its report-only timeout.
-   * timeoutMs without message only re-arms (the child must be running); both does steer then re-arm.
+   * timeout without message only re-arms (the child must be running); both does steer then re-arm.
    */
   async steer(
     caller: string,
     path: string,
     message?: string,
-    timeoutMs?: number,
+    timeout?: number,
   ): Promise<ThreadView> {
     this.assertLive();
     caller = canonicalPath(caller);
     path = canonicalPath(path, caller);
     this.assertAccess(caller, path);
-    if (message === undefined && timeoutMs === undefined)
-      throw new Error("Provide message, timeoutMs, or both");
-    if (timeoutMs !== undefined) assertSpawnTimeout(timeoutMs);
-    if (message === undefined) return this.extendTimeout(caller, path, timeoutMs!);
+    if (message === undefined && timeout === undefined)
+      throw new Error("Provide message, timeout, or both");
+    if (timeout !== undefined) assertSpawnTimeout(timeout);
+    if (message === undefined) return this.extendTimeout(caller, path, timeout!);
     if (!message.trim()) throw new Error("Steering message must not be empty");
     const record = this.record(path);
     const rearm = (): ThreadView => {
-      if (timeoutMs !== undefined && active(record.view) && !record.stopRequested)
-        this.armTimeout(record, resolveTimeoutMs(timeoutMs));
+      if (timeout !== undefined && active(record.view) && !record.stopRequested)
+        this.armTimeout(record, timeoutToMs(timeout));
       return this.view(record);
     };
     for (;;) {
@@ -433,7 +433,7 @@ export class ThreadManager {
   async wait(
     caller: string,
     path: string,
-    timeoutMs?: number,
+    maxWait?: number,
     signal?: AbortSignal,
   ): Promise<ThreadView> {
     path = canonicalPath(path, caller);
@@ -441,10 +441,10 @@ export class ThreadManager {
     const record = this.record(path);
     if (!active(record.view)) return this.view(record);
     if (
-      timeoutMs !== undefined &&
-      (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 3_600_000)
+      maxWait !== undefined &&
+      (!Number.isFinite(maxWait) || maxWait < 0 || maxWait > 3_600)
     )
-      throw new Error("timeoutMs must be between 0 and 3600000");
+      throw new Error("maxWait must be between 0 and 3600 (seconds)");
     if (signal?.aborted) throw new Error("Waiting cancelled; thread remains running");
     await new Promise<void>((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -455,7 +455,7 @@ export class ThreadManager {
       };
       const cancel = () => finish(new Error("Waiting cancelled; thread remains running"));
       signal?.addEventListener("abort", cancel, { once: true });
-      if (timeoutMs !== undefined) timer = setTimeout(() => finish(), timeoutMs);
+      if (maxWait !== undefined) timer = setTimeout(() => finish(), maxWait * 1000);
       record.run!.then(
         () => finish(),
         (error) => finish(new Error(errorText(error))),
@@ -558,15 +558,15 @@ export class ThreadManager {
     };
   }
   /** Re-arm a running child's report-only timeout from now (replaces any pending timer). */
-  extendTimeout(caller: string, path: string, timeoutMs: number): ThreadView {
+  extendTimeout(caller: string, path: string, timeout: number): ThreadView {
     this.assertLive();
     path = canonicalPath(path, caller);
     this.assertAccess(caller, path);
-    assertSpawnTimeout(timeoutMs);
+    assertSpawnTimeout(timeout);
     const record = this.record(path);
     if (!active(record.view) || record.stopRequested)
       throw new Error("Only a working agent has a timeout to extend");
-    this.armTimeout(record, resolveTimeoutMs(timeoutMs));
+    this.armTimeout(record, timeoutToMs(timeout));
     return this.view(record);
   }
   /** Number of detached agents still working; recap waits for this to reach zero. */
@@ -586,7 +586,7 @@ export class ThreadManager {
         kind: "timeout",
         thread: this.view(record),
         recipient: record.view.parent ?? record.view.owner,
-        timeoutMs,
+        timeout: timeoutMs / 1000,
         recentOutput: this.recentOutput(record),
       });
     }, timeoutMs);

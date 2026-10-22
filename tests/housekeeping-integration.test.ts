@@ -82,7 +82,7 @@ async function scenario(
             type: "worker",
             task: "Read the project notes",
             wait: false,
-            timeoutMs: 0,
+            timeout: 0,
             budgetTokens: 0,
           });
         return answer("Delegated");
@@ -254,7 +254,7 @@ test(
               type: "worker",
               task: "Read the project notes",
               wait: false,
-              timeoutMs: 0,
+              timeout: 0,
               budgetTokens: 0,
           });
           return answer("Delegated");

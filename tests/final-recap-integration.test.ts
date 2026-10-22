@@ -28,14 +28,14 @@ const spawn = (count = 1, wait = false): AssistantMessage => ({
   ...answer(""), stopReason: "toolUse",
   content: Array.from({ length: count }, (_, i) => ({
     type: "toolCall", id: `spawn-${i}`, name: "agent_spawn",
-    arguments: { path: `worker-${i}`, type: "worker", task: `Task ${i}`, wait, timeoutMs: 0, budgetTokens: 0 },
+    arguments: { path: `worker-${i}`, type: "worker", task: `Task ${i}`, wait, timeout: 0, budgetTokens: 0 },
   })),
 });
 const timedSpawn = (count = 1): AssistantMessage => ({
   ...answer(""), stopReason: "toolUse",
   content: Array.from({ length: count }, (_, i) => ({
     type: "toolCall", id: `timed-spawn-${i}`, name: "agent_spawn",
-    arguments: { path: `worker-${i}`, type: "worker", task: `Task ${i}`, wait: false, timeoutMs: 300000, budgetTokens: 0 },
+    arguments: { path: `worker-${i}`, type: "worker", task: `Task ${i}`, wait: false, timeout: 300, budgetTokens: 0 },
   })),
 });
 const summaryIds = (manager: SessionManager) => messages(manager, SUMMARY).map(
@@ -395,7 +395,7 @@ test(
                   type: "worker",
                   task: "Nested task",
                   wait: false,
-                  timeoutMs: 300000,
+                  timeout: 300,
                   budgetTokens: 0,
                 })
               : parent.promise;
@@ -632,7 +632,7 @@ test(
               type: "worker",
               task: "Dependent unfinished work",
               wait: false,
-              timeoutMs: 300000,
+              timeout: 300,
               budgetTokens: 0,
             });
           }
