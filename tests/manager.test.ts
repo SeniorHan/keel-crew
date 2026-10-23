@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { ThreadManager } from "../src/orch/manager.ts";
+import { ThreadManager, DEFAULT_SPAWN_TIMEOUT_MS } from "../src/orch/manager.ts";
 import { TranscriptChannel } from "../src/orch/transcript.ts";
 import type {
   AgentDriver,
@@ -917,5 +917,70 @@ test("negative and non-integer budgets are rejected", async () => {
       }),
       /budgetTokens must be a non-negative integer/,
     );
+  await manager.shutdown();
+});
+
+test("detachForeground flips an in-flight foreground spawn onto the detached path", async () => {
+  const { manager, drivers, events } = fixture();
+  const waiting = manager.spawn("/root", { path: "worker", type: "worker", task: "task" });
+  await tick();
+  assert.equal(manager.outstandingAsync(), 0);
+  const flippedList = manager.detachForegroundIfRunning();
+  assert.equal(flippedList.length, 1);
+  assert.equal(flippedList[0]!.path, "/root/worker");
+  // The spawn call resolves early with the detached marker while the child keeps running.
+  const flipped = await waiting;
+  assert.equal(flipped.detachedToBackground, true);
+  assert.equal(flipped.path, "/root/worker");
+  assert.equal(flipped.state, "running");
+  assert.equal(manager.outstandingAsync(), 1);
+  // Nothing left to flip; a second pass is a no-op.
+  assert.equal(manager.detachForegroundIfRunning().length, 0);
+  // Settlement flows through the natural detached path: async event to the parent.
+  drivers.get("/root/worker")!.finish();
+  await tick();
+  const settled = events.filter((event) => event.kind === "settled").at(-1)!;
+  assert.equal(settled.async, true);
+  assert.equal(settled.recipient, "/root");
+  assert.equal(settled.thread.state, "completed");
+  assert.equal(settled.thread.output, "answer: task");
+  assert.equal(manager.outstandingAsync(), 0);
+  await manager.shutdown();
+});
+
+test("untouched foreground spawns keep foreground semantics", async () => {
+  const { manager, drivers, events } = fixture();
+  const waiting = manager.spawn("/root", { path: "worker", type: "worker", task: "task" });
+  await tick();
+  drivers.get("/root/worker")!.finish();
+  const view = await waiting;
+  assert.equal(view.detachedToBackground, undefined);
+  assert.equal(view.state, "completed");
+  const settled = events.filter((event) => event.kind === "settled").at(-1)!;
+  assert.equal(settled.async, false);
+  // Settled or detached spawns are not flip targets.
+  assert.equal(manager.detachForegroundIfRunning().length, 0);
+  await manager.shutdown();
+});
+
+test("detach keeps the supervision timeout reporting through the detached path", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { manager, drivers, events } = fixture();
+  const waiting = manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "task",
+    timeout: 0,
+    budgetTokens: 0,
+  });
+  await tick();
+  manager.detachForegroundIfRunning();
+  await waiting;
+  // A detached spawn's timeout fires as a report event, never stopping the child.
+  t.mock.timers.tick(DEFAULT_SPAWN_TIMEOUT_MS + 1);
+  const timeout = events.filter((event) => event.kind === "timeout").at(-1)!;
+  assert.equal(timeout.recipient, "/root");
+  assert.equal(drivers.get("/root/worker")!.runs.length, 1);
+  drivers.get("/root/worker")!.finish();
   await manager.shutdown();
 });

@@ -82,6 +82,8 @@ export interface ThreadView {
   budgetTokens?: number;
   /** Stable lifetime identity for cost accounting, retained across resumes/reloads. */
   costId?: string;
+  /** Transient: a foreground spawn flipped to detached by queued user input; never persisted. */
+  detachedToBackground?: boolean;
 }
 export type DriverEvent =
   | { kind: "settings"; model: string; thinkingLevel: ThinkingLevel }

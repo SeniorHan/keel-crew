@@ -36,6 +36,8 @@ interface Record {
   liveCostUsd?: number;
   /** Detached (spawned with wait:false or resumed): completion is reported as an event. */
   async?: boolean;
+  /** Pending foreground spawn's early-resolve hook, armed by spawn() and consumed by detach. */
+  foregroundWait?: { detach: () => void };
   timeoutTimer?: ReturnType<typeof setTimeout>;
   pauseRequested: boolean;
   stopRequested: boolean;
@@ -378,7 +380,45 @@ export class ThreadManager {
     record.async = args.wait === false;
     this.start(record, args.task);
     this.armTimeout(record, timeoutMs);
-    return args.wait === false ? this.view(record) : this.wait(caller, path, undefined, signal);
+    if (args.wait === false) return this.view(record);
+    // A foreground spawn resolves with wait(), but detachForegroundIfRunning() can end the
+    // call early by flipping the record to detached; settlement then takes the async path.
+    return new Promise<ThreadView>((resolve, reject) => {
+      let detached = false;
+      record.foregroundWait = {
+        detach: () => {
+          if (detached) return;
+          detached = true;
+          resolve({ ...this.view(record), detachedToBackground: true });
+        },
+      };
+      this.wait(caller, path, undefined, signal).then(
+        (view) => {
+          record.foregroundWait = undefined;
+          if (!detached) resolve(view);
+        },
+        (error) => {
+          record.foregroundWait = undefined;
+          if (!detached) reject(error);
+        },
+      );
+    });
+  }
+
+  /** Flip every in-flight foreground spawn to detached (queued user input unblocks the turn). */
+  detachForegroundIfRunning(): ThreadView[] {
+    const detached: ThreadView[] = [];
+    for (const record of this.records.values()) {
+      if (record.async || record.stopRequested || !active(record.view) || !record.foregroundWait)
+        continue;
+      record.async = true;
+      const hook = record.foregroundWait;
+      record.foregroundWait = undefined;
+      hook.detach();
+      detached.push(this.view(record));
+      this.touch(record);
+    }
+    return detached;
   }
 
   /**

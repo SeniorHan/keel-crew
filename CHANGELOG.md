@@ -4,6 +4,13 @@ Generated from version tags and merged GitHub pull requests. Do not edit this fi
 
 ## 0.x — Pre-1.0 releases
 
+### [v0.32.0] — Tap-to-background for foreground spawns (local fork, 2026-10-23)
+
+> Local fork. Mirrors keel-bash v0.6.0 (tap-to-background).
+
+#### Added
+- **A user message detaches in-flight foreground spawns.** While a foreground `agent_spawn` (default `wait`) blocks the turn, a queued steering message flips it to detached: the pending tool call resolves early with "Child `<path>` detached to the background because you sent a message: reply to the user first; its settlement is reported automatically (check with agent_wait/agent_output)." The child's settlement/budget/timeout events then flow through the exact same delivery path as a natural `wait:false` spawn. Wired via `pi.on("input")` and eavesdropping only (`action: "continue"`); deliberate `followUp` waits do not detach. New `ThreadManager.detachForegroundIfRunning()` performs the flip; untouched foreground spawns keep their exact prior semantics.
+
 ### [v0.31.0] — Safety redesign (local fork, 2026-10-22)
 
 > Local fork of v0.30.0 (SeniorHan/pi-subagent-manager). Not published upstream.

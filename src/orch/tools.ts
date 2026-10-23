@@ -123,18 +123,28 @@ export function agentTools(
           description: "必填,本线程累计输入 token 上限,0=2,000,000 默认。",
         }),
       }),
-      async (params, signal) =>
-        result(
-          compact(
-            await threads().spawn(
+      async (params, signal) => {
+        const view = await threads().spawn(
+          {
+            ...params,
+            timeout: legacyTimeoutMsToSeconds(params, "timeout"),
+          },
+          signal,
+        );
+        // Detached mid-flight by queued user input: end the blocking call with the notice;
+        // settlement/budget/timeout events still arrive via the detached path.
+        if (view.detachedToBackground)
+          return {
+            content: [
               {
-                ...params,
-                timeout: legacyTimeoutMsToSeconds(params, "timeout"),
+                type: "text" as const,
+                text: `Child ${view.path} detached to the background because you sent a message: reply to the user first; its settlement is reported automatically (check with agent_wait/agent_output).`,
               },
-              signal,
-            ),
-          ),
-        ),
+            ],
+            details: view,
+          };
+        return result(compact(view));
+      },
     ),
     make(
       "agent_wait",

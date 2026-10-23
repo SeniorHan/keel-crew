@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { buildSessionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+  InputEventResult,
+} from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
 import { ConfigStore } from "./prefs/config.ts";
 import {
@@ -447,6 +451,17 @@ export default function piSubagent(pi: ExtensionAPI): void {
       rootTurnRunning = false;
       restoreRootMailbox(ctx);
     }
+  });
+  // A message queued while a foreground spawn blocks flips every in-flight foreground
+  // spawn to detached: the turn must free up so the model can answer the user. Only
+  // eavesdrop — "continue" keeps the queueing pipeline untouched; the spawn call's
+  // result explains the move and settlement arrives via the detached path. Deliberate
+  // waits (`followUp`) do not detach.
+  pi.on("input", (event): InputEventResult => {
+    if (event.streamingBehavior !== "steer") return { action: "continue" };
+    if (limits.subagentMode === "off" || !manager) return { action: "continue" };
+    manager.detachForegroundIfRunning();
+    return { action: "continue" };
   });
   const delivery = (event: ThreadEvent) => {
     if (event.kind === "change" || event.kind === "metrics") return;
