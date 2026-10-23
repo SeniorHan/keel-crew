@@ -18,6 +18,7 @@ Generated from version tags and merged GitHub pull requests. Do not edit this fi
 #### Changed
 - **`timeoutMs` is now required on `agent_spawn`** (report-only supervision timer, never stops the child). `0` resolves to a 60 s default; valid range 0–300000 ms. Previously omitting it armed no timer at all, so an unsupervised child could spin for minutes (observed: 223 s) before anyone noticed. `agent_steer` timeout re-arms also accept `0` for the 60 s default.
 - Docs and prompts now teach fresh-only spawning and the required supervision parameters.
+- **Naming overhaul (2026-10-23):** model-facing surface renamed per the naming doctrine — `timeoutMs` → `timeout` (seconds, 0–300) on `agent_spawn`/`agent_steer`; `agent_wait`'s cap renamed to `maxWait` (seconds); tool/agent-type descriptions rewritten with no duplicated parameter docs. `timeoutMs` remains accepted as an alias.
 
 
 ### [v0.30.0](https://github.com/championswimmer/pi-subagent-manager/releases/tag/v0.30.0) — Minor release (2026-10-22)
