@@ -63,7 +63,7 @@ export function agentTools(
   return [
     make(
       "agent_types",
-      "List agent names, descriptions, resolved models and thinking levels for new children of this caller. Reflects current configuration; call before choosing a type. Other parent paths may inherit different settings.",
+      "列出本调用方新增子代理可用的类型:名称、描述、解析模型与思考级别。反映当前配置,选型前先调用。其他父路径可能继承不同设置。",
       Type.Object({}),
       () => {
         const entries = getTypes().map((type) => {
@@ -103,11 +103,11 @@ export function agentTools(
     ),
     make(
       "agent_spawn",
-      "生成命名子代理,子代理只收自己的 task 与类型 prompt。传上下文:把自含简报(决策/路径/文件位置)写进 task,或指向文件。默认前台等待;wait:false 转后台,完成/失败/被停时收到唤醒消息,勿轮询。timeout 到点仅发状态事件(状态/耗时/tokens/最近输出),绝不停止子代理,续期用 agent_steer。budgetTokens 超限即停子代理并发事件,session 仍可经 agent_output 读取。并行时先以 wait:false 生成全部独立兄弟,再 agent_wait;有委派工具的子代理照做。既有 path 保留,可经 agent_steer 恢复。可用类型用 agent_types 查询。",
+      "生成命名子代理,子代理只收自己的 task 与类型 prompt。传上下文:把自含简报(决策/路径/文件位置)写进 task,或指向文件。默认前台等待;wait:false 转后台,完成/失败/被停时收到唤醒消息,勿轮询。timeout 到点仅发状态事件(状态/耗时/tokens/最近输出),绝不停止子代理,续期用 agent_steer。budgetTokens 超限即停子代理并发事件,session 仍可经 agent_output 读取。并行时先以 wait:false 生成全部独立兄弟,再 agent_wait;有委派工具的子代理照做。可用类型用 agent_types 查询。",
       Type.Object({
         path: Type.String({
           description:
-            "Task-based kebab-case path, not the agent type (e.g. /root/controller-security-research), or a task name relative to the caller",
+            "任务式 kebab-case 路径,非代理类型(如 /root/controller-security-research),或相对调用方的任务名",
         }),
         type: text,
         task: text,
@@ -194,7 +194,7 @@ export function agentTools(
     ),
     make(
       "agent_status",
-      "读取线程状态;省略 path 则列出可见后代。/root 可查所有树。完成/失败/停止/暂停均保留 session。",
+      "读取线程状态;省略 path 则列出可见后代。/root 可查所有树。",
       Type.Object({
         path: Type.Optional(
           Type.String({
@@ -211,7 +211,7 @@ export function agentTools(
     ),
     make(
       "agent_update",
-      "Child-only: send progress to the parent without ending this task. Delivery is recorded and displayed but does not interrupt or automatically restart the parent model.",
+      "子代理专用:向父级发送进度,不结束本任务。消息被记录并展示,但不中断、不自动重启父模型。",
       Type.Object({
         message: Type.String({
           minLength: 1,
@@ -223,12 +223,12 @@ export function agentTools(
     ),
     make(
       "agent_pause",
-      "子代理专用:本回合边界停止,不回传 final answer;session 保留,可经 agent_steer 恢复。要交付答案则直接返回最终回答,该完成态同样可恢复。",
+      "子代理专用:本回合边界停止,不回传 final answer。要交付答案则直接返回最终回答,该完成态同样可恢复。",
       Type.Object({
         reason: Type.String({
           minLength: 1,
           description:
-            "Written into thread status; empty falls back to 'Awaiting further input'.",
+            "写入线程状态;留空则落 'Awaiting further input'。",
         }),
       }),
       (params) => ({
@@ -242,7 +242,7 @@ export function agentTools(
     ),
     make(
       "agent_stop",
-      "Stop a descendant and every still-working descendant below it (the whole subtree, any depth). Session history is retained; resume with agent_steer. This is cooperative cancellation, not sandbox process termination.",
+      "停止后代代理及其下所有仍在运行的子孙(整棵子树,任意深度)。协作式取消,非沙箱进程终止。",
       Type.Object({ path }),
       async (params) => result(compact(await threads().stop(params.path))),
     ),
