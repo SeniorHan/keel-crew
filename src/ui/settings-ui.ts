@@ -457,7 +457,7 @@ async function configureAgentsDialog(
           id: "subagentExtensions",
           label: "[lab] Subagent extensions",
           value: Array.isArray(draft.subagentExtensions) ? `${draft.subagentExtensions.length} selected` : draft.subagentExtensions ? "All (legacy)" : "None",
-          help: "Experimental: reload selected user/trusted-project extension hooks, including auto-discovered .ts/.js files and subdirectory entry points, in separate subagent sessions (not CLI-only or inline extensions). Bugs and unintended consequences may occur if hooks assume main-session state.\nRead limitations: https://github.com/championswimmer/pi-subagent-manager/blob/main/docs/subagent-extension-limitations.md\nSelect individual extensions in the submenu. None by default. Save and apply affects newly opened sessions, not already-open agents.",
+          help: "Experimental: reload selected user/trusted-project extension hooks, including auto-discovered .ts/.js files and subdirectory entry points, in separate subagent sessions (not CLI-only or inline extensions). Bugs and unintended consequences may occur if hooks assume main-session state.\nRead limitations: https://github.com/SeniorHan/keel-crew/blob/main/docs/subagent-extension-limitations.md\nSelect individual extensions in the submenu. None by default. Save and apply affects newly opened sessions, not already-open agents.",
         },
         checklistRow(draft.checklistIntegration, checklistStatus()),
         {

@@ -7,8 +7,8 @@ A settings-only customization is a sparse YAML overlay.
 
 | Scope   | Directory                                                                                   |
 | ------- | ------------------------------------------------------------------------------------------- |
-| User    | `<pi-agent-dir>/subagent-manager/agents/` (normally `~/.pi/agent/subagent-manager/agents/`) |
-| Project | `<cwd>/.pi/agent/subagent-manager/agents/` — loaded only when pi trusts the project         |
+| User    | `<pi-agent-dir>/keel-crew/agents/` (normally `~/.pi/agent/keel-crew/agents/`) |
+| Project | `<cwd>/.pi/agent/keel-crew/agents/` — loaded only when pi trusts the project         |
 
 Precedence: **project > user > bundled**. Markdown definitions replace lower-layer
 definitions; YAML overlays inherit any fields they do not specify.
@@ -25,7 +25,7 @@ project) cannot hold both a `.md` and a `.yml` for the same name.
 | Editable | Settings (models, tools, thinking, color, icon, description) | Everything, including name and system prompt |
 | File | Plain YAML mapping, no frontmatter, no Markdown body | YAML frontmatter on top, system prompt below |
 
-`~/.pi/agent/subagent-manager/agents/coder.yml`:
+`~/.pi/agent/keel-crew/agents/coder.yml`:
 
 ```yaml
 thinkingLevel: low
@@ -70,7 +70,7 @@ These are the only locations read. Other packages' `~/.pi/agent/agents` or `.pi/
 
 ## 2. Write the file
 
-`~/.pi/agent/subagent-manager/agents/api-scout.md`:
+`~/.pi/agent/keel-crew/agents/api-scout.md`:
 
 ```markdown
 ---

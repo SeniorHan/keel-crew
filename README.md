@@ -1,14 +1,14 @@
 # keel-crew
 
-> Fork of [championswimmer/pi-subagent-manager](https://github.com/championswimmer/pi-subagent-manager)
+> Forked from the upstream project by championswimmer (history in CHANGELOG.md)
 > with fresh-only spawns, required supervision params and budget enforcement.
 > Maintained at [SeniorHan/keel-crew](https://github.com/SeniorHan/keel-crew).
-[![CI](https://github.com/championswimmer/pi-subagent-manager/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/championswimmer/pi-subagent-manager/actions/workflows/tests.yml)
-[![codecov](https://codecov.io/gh/championswimmer/pi-subagent-manager/branch/main/graph/badge.svg)](https://codecov.io/gh/championswimmer/pi-subagent-manager)
+[![CI](https://github.com/SeniorHan/keel-crew/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/SeniorHan/keel-crew/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/gh/SeniorHan/keel-crew/branch/main/graph/badge.svg)](https://codecov.io/gh/SeniorHan/keel-crew)
 
 Let pi hand work to helper agents in parallel. Watch what they're doing, give them more direction, or pick up a finished agent's conversation.
 
-![Pi running parallel agents, browsing a nested agent tree, steering a writer, and watching passing tests](docs/assets/subagent-manager-demo.gif)
+![Pi running parallel agents, browsing a nested agent tree, steering a writer, and watching passing tests](docs/assets/keel-crew-demo.gif)
 
 A real Pi session with a customized footer and Nerd Font: parallel work, nested delegation, watching, and steering. [Recording details](docs/demo.md) (37 seconds; pauses shortened).
 
@@ -17,7 +17,7 @@ A real Pi session with a customized footer and Nerd Font: parallel work, nested 
 Requires pi **0.99.2+**.
 
 ```sh
-pi install npm:pi-subagent-manager
+pi install git@github.com:SeniorHan/keel-crew.git
 ```
 
 ## Start using it

@@ -1,6 +1,6 @@
 # README demo
 
-[Watch the GIF](assets/subagent-manager-demo.gif).
+[Watch the GIF](assets/keel-crew-demo.gif).
 
 ## What it shows
 
@@ -16,11 +16,11 @@ browse live activity. No production code or data was used.
 
 ## Recording
 
-- Pi **1.3.0**, pi-subagent-manager **0.29.3**.
+- Pi **1.3.0**, keel-crew **0.29.3**.
 - Started **plain `pi`**, with the user's existing configuration and all configured
   extensions. No `-ne`, replacement agent directory, or stripped-down configuration.
 - The colorful footer and checklist come from the author's configured extensions;
-  they are not installed by pi-subagent-manager.
+  they are not installed by keel-crew.
 - **Maple Mono NF**, 17 px, 112 × 34 terminal cells. Reused this installed Nerd Font
   rather than installing JetBrains Mono. Chromium confirmed MapleMono-NF-Regular
   for every footer icon; the rendered footer and role glyphs were visually checked.

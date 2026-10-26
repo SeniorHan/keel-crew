@@ -44,7 +44,7 @@ Tests run offline with no model credentials. Scripted-provider SDK tests cover n
 
 ```sh
 git fetch origin --tags
-GITHUB_REPOSITORY=championswimmer/pi-subagent-manager npm run changelog
+GITHUB_REPOSITORY=SeniorHan/keel-crew npm run changelog
 ```
 
 Rewrites local `CHANGELOG.md` only. The workflow adds `--publish`.
@@ -53,9 +53,7 @@ Rewrites local `CHANGELOG.md` only. The workflow adds `--publish`.
 
 ## Publishing
 
-Pushing a `v<version>` tag runs [release.yml](../.github/workflows/release.yml): checks the tag matches `package.json`, typechecks, tests, and publishes to npm with provenance via GitHub OIDC. No `NPM_TOKEN`.
-
-npm trusted publisher: owner `championswimmer`, repo `pi-subagent-manager`, workflow `release.yml`, environment empty.
+This fork is not published to npm. Releases are local only: version bump + CHANGELOG.md update, then tag and push. The upstream npm publication flow (release.yml via npm OIDC, trusted publisher) does not apply here.
 
 To release:
 
@@ -70,4 +68,4 @@ The package ships TypeScript sources and `agents/`; check `files` in `package.js
 
 ## Background
 
-Initial design: [`.agents/plans`](https://github.com/championswimmer/pi-subagent-manager/tree/main/.agents/plans). Prior-art research: [Claude](research-claude.md), [Codex](research-codex.md).
+Initial design: [`.agents/plans`](../.agents/plans). Prior-art research: [Claude](research-claude.md), [Codex](research-codex.md).

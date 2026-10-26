@@ -6,8 +6,8 @@ Open with `/agents` (or `/agents settings`). Save with **Ctrl+S**. Changes apply
 
 | Scope   | Path                                                                                                    |
 | ------- | ------------------------------------------------------------------------------------------------------- |
-| Global  | `<pi-agent-dir>/subagent-manager/settings.json` (normally `~/.pi/agent/subagent-manager/settings.json`) |
-| Project | `<cwd>/.pi/agent/subagent-manager/settings.json` — trusted projects only; overrides global              |
+| Global  | `<pi-agent-dir>/keel-crew/settings.json` (normally `~/.pi/agent/keel-crew/settings.json`) |
+| Project | `<cwd>/.pi/agent/keel-crew/settings.json` — trusted projects only; overrides global              |
 
 All keys are optional. Defaults:
 
@@ -120,7 +120,7 @@ The chooser includes **auto-discovered files**, not just paths listed in `settin
 
 Discovery uses Pi's own resource resolver, keeping its ignore rules, directory/manifest entry-point precedence and disabled-extension patterns. Standalone files need no package manifest or explicit settings entry. This manager is always excluded, including symlinks to it.
 
-When a subagent session opens, it reloads only selected, currently enabled extension files from user auto-discovery/configuration and, only when the main project is trusted, project auto-discovery/configuration. Pi package resource filters and disabled-extension settings are respected; missing packages are skipped, never installed. This manager is excluded to avoid starting a second subagent manager inside each child. Each factory receives a child-local runtime and its hooks run against that child's session. Reloaded extension tools take precedence over inherited main-session bridges, including tools registered on `session_start`; tool filtering still applies. Other inherited tools keep their existing bridges.
+When a subagent session opens, it reloads only selected, currently enabled extension files from user auto-discovery/configuration and, only when the main project is trusted, project auto-discovery/configuration. Pi package resource filters and disabled-extension settings are respected; missing packages are skipped, never installed. This manager is excluded to avoid starting a second keel-crew inside each child. Each factory receives a child-local runtime and its hooks run against that child's session. Reloaded extension tools take precedence over inherited main-session bridges, including tools registered on `session_start`; tool filtering still applies. Other inherited tools keep their existing bridges.
 
 **This is filesystem/configuration discovery, not exact main-session inheritance. Bugs and unintended consequences are possible.** Read [subagent extension limitations](subagent-extension-limitations.md) before enabling it: the guide covers excluded extensions, configuration drift, `input` hook bypasses, shared side effects, non-interactive UI, and main-session tool bridges.
 
@@ -175,7 +175,7 @@ Pick the model in the dialog's searchable picker. It lists **scoped models first
 
 **Throttling.** Each agent has at most one housekeeping call in flight and at most one every 10 seconds (activity during a call is coalesced into the next one, after a 1.5 s quiet period), with exponential backoff after failures. At most two calls run at once across all agents, each times out after 20 seconds, and a call is cancelled — and a late answer discarded — when the agent settles or restarts, the toggle or model changes, or the session changes.
 
-**Privacy and cost.** The housekeeping model sees each agent's task and recent activity text, including command and path snippets, so choose a provider you are comfortable sending that to. Calls use extra tokens at that model's price. Reported usage (including failed, cancelled, or discarded answers) is recorded in the main session as native `usage` entries, contributing to Pi's session totals and the **Total** cost display, but not the **Subagents** cost total. Extensions such as pi-stats display the actual response model as `provider/model (subagent-manager)`. These accounting entries contain no task, prompt, tool arguments, or summary text and do not enter the model's conversation context.
+**Privacy and cost.** The housekeeping model sees each agent's task and recent activity text, including command and path snippets, so choose a provider you are comfortable sending that to. Calls use extra tokens at that model's price. Reported usage (including failed, cancelled, or discarded answers) is recorded in the main session as native `usage` entries, contributing to Pi's session totals and the **Total** cost display, but not the **Subagents** cost total. Extensions such as pi-stats display the actual response model as `provider/model (keel-crew)`. These accounting entries contain no task, prompt, tool arguments, or summary text and do not enter the model's conversation context.
 
 ## Model Picking (`modelSelection`)
 

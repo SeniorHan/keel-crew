@@ -38,4 +38,4 @@ Supported sources: [`@tintinweb/pi-subagents` 0.19.0](https://github.com/tintinw
 
 Skipped: `skills`/`.skills` trees, any `SKILL.md`, symlinks, `.chain.md` workflows, installed-package builtins. npm's git-root anchoring isn't reproduced.
 
-The offer is remembered in `<pi-agent-dir>/subagent-manager/.import-offered`.
+The offer is remembered in `<pi-agent-dir>/keel-crew/.import-offered`.

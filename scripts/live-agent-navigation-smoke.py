@@ -20,8 +20,8 @@ repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ansi = re.compile(rb'\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)')
 for mode in ('regular', 'fullscreen'):
   with tempfile.TemporaryDirectory(prefix='pi-nav-pty-') as home:
-    os.mkdir(home + '/subagent-manager')
-    open(home + '/subagent-manager/.import-offered', 'w').close()
+    os.mkdir(home + '/keel-crew')
+    open(home + '/keel-crew/.import-offered', 'w').close()
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 100, 0, 0))
     env = dict(os.environ, PI_CODING_AGENT_DIR=home, TERM='xterm-256color', PI_OFFLINE='1')

@@ -6,7 +6,7 @@ main-session + settled-subagent USD. Keep pi-footer’s native cost widget if yo
 want the main-session cost shown separately.
 
 The shared status key / event Widget ID is exactly **`subagent_cost`**. It is not
-`pi-subagent-manager`, an extension file path, or an npm package ID.
+`keel-crew`, an extension file path, or an npm package ID.
 
 ## Extension Status (recommended; default)
 
@@ -16,7 +16,7 @@ The shared status key / event Widget ID is exactly **`subagent_cost`**. It is no
 3. Set **Status key** to **`subagent_cost`** and enable **Raw value only**.
 4. Save the footer configuration.
 
-The corresponding subagent-manager setting is:
+The corresponding keel-crew setting is:
 
 ```json
 {
@@ -60,7 +60,7 @@ It clears the status with `ctx.ui.setStatus("subagent_cost", undefined)`.
    and enable **Raw value only**. Event IDs do **not** appear in the status-key selector.
 4. Save the footer configuration.
 
-The corresponding subagent-manager setting is:
+The corresponding keel-crew setting is:
 
 ```json
 {
@@ -105,8 +105,8 @@ pi.events.emit("pi-footer:update-widget", {
 ## File locations and refresh behavior
 
 - Merge `costDisplay`, `costValue`, and `costIcon` settings into
-  `~/.pi/agent/subagent-manager/settings.json`, or the trusted-project override
-  `.pi/agent/subagent-manager/settings.json`. Preserve your other settings.
+  `~/.pi/agent/keel-crew/settings.json`, or the trusted-project override
+  `.pi/agent/keel-crew/settings.json`. Preserve your other settings.
 - Footer widget snippets are **objects inside a row**, not complete configuration
   files: the structure is `"lines": [[widgetObject, otherWidgetObject]]`. Preserve
   existing rows and widgets. `PI_FOOTER_CONFIG` can override the footer file path.

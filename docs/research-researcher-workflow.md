@@ -14,7 +14,7 @@ Use a reasoning-capable, tool-reliable model with good code reading, multi-hop r
 
 Historical evidence at inspected revision `af8424dc621fa38f61058e2e0afa19ab449d084b` (before parent-tool bridging):
 
-- [`src/runtime.ts:299-303`](../src/runtime.ts) selects from built-ins and `options.tools`; [`src/index.ts:230`](../src/index.ts) supplies only subagent-manager tools through `toolsFor`.
+- [`src/runtime.ts:299-303`](../src/runtime.ts) selects from built-ins and `options.tools`; [`src/index.ts:230`](../src/index.ts) supplies only keel-crew tools through `toolsFor`.
 - [`src/runtime.ts:311-319`](../src/runtime.ts) sets `noExtensions`, `noSkills`, `noPromptTemplates`, `noContextFiles`, and `noThemes` to true. The parent’s Context7/Exa/Parallel/Perplexity MCP or web extensions are **not inherited**.
 - [`src/runtime.ts:339-343`](../src/runtime.ts) blocks unallowed tool calls; [`src/runtime.ts:350-362`](../src/runtime.ts) passes only selected tools to the SDK session.
 - [`src/config.ts:257-269`](../src/config.ts) validates exact tool names and throws for unavailable names. Adding imagined MCP names to the frontmatter will not enable them and can break spawning.
