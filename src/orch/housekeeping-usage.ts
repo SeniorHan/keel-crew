@@ -1,7 +1,7 @@
 import type { ExtensionContext, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 
-export const HOUSEKEEPING_USAGE_KIND = "subagent-manager";
+export const HOUSEKEEPING_USAGE_KIND = "keel-crew";
 
 // ExtensionContext exposes a read-only type; the runtime manager supports appendUsage.
 type UsageSession = Pick<SessionManager, "getSessionId"> &

@@ -18,7 +18,7 @@ async function isManagerExtension(file: string, packageRoot?: string): Promise<b
   while (true) {
     try {
       const manifest = JSON.parse(await readFile(path.join(directory, "package.json"), "utf8"));
-      return manifest.name === "keel-crew" || manifest.name === "pi-subagent-manager";
+      return manifest.name === "keel-crew";
     } catch {
       const parent = path.dirname(directory);
       if (parent === directory) return false;

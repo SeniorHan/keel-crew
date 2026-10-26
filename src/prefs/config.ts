@@ -81,7 +81,7 @@ const FIELDS = new Set([
   "icon",
   "tools",
 ]);
-const SUBAGENT_MANAGER_DIR = "subagent-manager";
+const CREW_DIR = "keel-crew";
 const AGENTS_DIR = "agents";
 
 type AgentScope = "user" | "project";
@@ -918,12 +918,12 @@ export class ConfigStore {
     if (scope === "project" && !this.options.includeProject)
       throw new Error("Project agents are not enabled/trusted");
     return scope === "user"
-      ? resolve(this.options.agentDir, SUBAGENT_MANAGER_DIR, AGENTS_DIR)
+      ? resolve(this.options.agentDir, CREW_DIR, AGENTS_DIR)
       : resolve(
           this.options.cwd,
           ".pi",
           "agent",
-          SUBAGENT_MANAGER_DIR,
+          CREW_DIR,
           AGENTS_DIR,
         );
   }
@@ -936,7 +936,7 @@ export class ConfigStore {
   private destinationBasePaths(scope: AgentScope, directory: string): string[] {
     if (scope === "user") {
       const base = resolve(this.options.agentDir);
-      return [base, join(base, SUBAGENT_MANAGER_DIR), directory];
+      return [base, join(base, CREW_DIR), directory];
     }
     const base = resolve(this.options.cwd);
     const projectPi = join(base, ".pi");
@@ -945,7 +945,7 @@ export class ConfigStore {
       base,
       projectPi,
       projectAgent,
-      join(projectAgent, SUBAGENT_MANAGER_DIR),
+      join(projectAgent, CREW_DIR),
       directory,
     ];
   }

@@ -31,7 +31,7 @@ export const IMPORT_CHILD_TOOLS = [
   "agent_output",
 ];
 
-// This records onboarding only. Limits remain in subagent-manager/settings.json.
+// This records onboarding only. Limits remain in keel-crew/settings.json.
 const OFFER_MARKER = ".import-offered";
 
 function statIfPresent(path: string) {
@@ -46,7 +46,7 @@ function statIfPresent(path: string) {
 }
 
 function stateDirectory(agentDir: string, create: boolean): string | undefined {
-  const directory = join(agentDir, "subagent-manager");
+  const directory = join(agentDir, "keel-crew");
   for (const path of [agentDir, directory]) {
     let stat = statIfPresent(path);
     if (!stat && create) {
@@ -107,14 +107,14 @@ export function buildImportPrompt(options: {
       {
         selectedDefinitions: options.candidates,
         destinations: {
-          user: join(options.agentDir, "subagent-manager", "agents"),
+          user: join(options.agentDir, "keel-crew", "agents"),
           project: options.includeProject
-            ? join(options.cwd, ".pi", "agent", "subagent-manager", "agents")
+            ? join(options.cwd, ".pi", "agent", "keel-crew", "agents")
             : null,
         },
         destinationRule:
           "Keep user sources user-scoped and project sources project-scoped. Project destination is permitted only when non-null; ask before changing scope.",
-        managerSettings: join(options.agentDir, "subagent-manager", "settings.json"),
+        managerSettings: join(options.agentDir, "keel-crew", "settings.json"),
         configModule: fileURLToPath(new URL("./config.ts", import.meta.url)),
         existingTypes: options.existingTypes,
         scopedModels: options.scopedModels,

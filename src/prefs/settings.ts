@@ -301,10 +301,10 @@ export function loadManagerSettingsLayers(options: ManagerSettingsOptions): Mana
     scope: "user",
   };
   const layers: ["global" | "project", SettingsLayer][] = [
-    ["global", layer(options.agentDir, ["subagent-manager"])],
+    ["global", layer(options.agentDir, ["keel-crew"])],
   ];
   if (options.includeProject)
-    layers.push(["project", layer(options.cwd, [".pi", "agent", "subagent-manager"])]);
+    layers.push(["project", layer(options.cwd, [".pi", "agent", "keel-crew"])]);
   for (const [scope, entry] of layers) {
     try {
       if (!settingsFileExists(entry)) continue;
@@ -445,8 +445,8 @@ export function saveManagerSettings(options: {
   const content = serializedSettings(options.settings);
   const entry =
     options.scope === "user"
-      ? layer(options.agentDir, ["subagent-manager"])
-      : layer(options.cwd, [".pi", "agent", "subagent-manager"]);
+      ? layer(options.agentDir, ["keel-crew"])
+      : layer(options.cwd, [".pi", "agent", "keel-crew"]);
   ensureScopeDirectories(entry.directories);
   writeAtomically(entry, content);
   return entry.filePath;
@@ -479,7 +479,7 @@ export function saveManagerOverrides(options: ManagerSettingsOptions & {
   const current = loadManagerSettingsLayers(options);
   if (options.expectedLayers) assertExpectedLayers(current, options.expectedLayers);
   if (options.scope === "project") {
-    const globalPath = layer(options.agentDir, ["subagent-manager"]).filePath;
+    const globalPath = layer(options.agentDir, ["keel-crew"]).filePath;
     const globalDiagnostics = current.diagnostics.filter((diagnostic) => diagnostic.startsWith(`${globalPath}:`));
     if (globalDiagnostics.length > 0)
       throw new Error(`Cannot save project overrides while global settings are invalid. Fix global settings and reopen settings. ${globalDiagnostics.join("; ")}`);
@@ -491,8 +491,8 @@ export function saveManagerOverrides(options: ManagerSettingsOptions & {
     KEYS.filter((key) => !settingsValueEqual(parsed[key], inherited[key])).map((key) => [key, parsed[key]]),
   );
   const entry = options.scope === "user"
-    ? layer(options.agentDir, ["subagent-manager"])
-    : layer(options.cwd, [".pi", "agent", "subagent-manager"]);
+    ? layer(options.agentDir, ["keel-crew"])
+    : layer(options.cwd, [".pi", "agent", "keel-crew"]);
   ensureScopeDirectories(entry.directories);
   writeAtomically(entry, `${JSON.stringify(overrides, null, 2)}\n`);
   return entry.filePath;
@@ -507,7 +507,7 @@ export function setManagerProjectSettings(options: ManagerSettingsOptions & {
   if (typeof options.enabled !== "boolean") throw new Error("Invalid project settings state");
   if (options.expectedLayers)
     assertExpectedLayers(loadManagerSettingsLayers(options), options.expectedLayers);
-  const entry = layer(options.cwd, [".pi", "agent", "subagent-manager"]);
+  const entry = layer(options.cwd, [".pi", "agent", "keel-crew"]);
   const present = settingsFileExists(entry);
   if (options.enabled) {
     if (!present) {
@@ -525,9 +525,9 @@ export function setManagerProjectSettings(options: ManagerSettingsOptions & {
 export function managerSettingsPath(options: ManagerSettingsOptions, scope: ManagerSaveScope): string {
   if (scope === "project") {
     if (!options.includeProject) throw new Error("Project settings are not enabled/trusted");
-    return layer(options.cwd, [".pi", "agent", "subagent-manager"]).filePath;
+    return layer(options.cwd, [".pi", "agent", "keel-crew"]).filePath;
   }
-  return layer(options.agentDir, ["subagent-manager"]).filePath;
+  return layer(options.agentDir, ["keel-crew"]).filePath;
 }
 
 /** Restore a scope's defaults by deleting its settings file (nothing is written). A missing file is not an error. */
@@ -539,8 +539,8 @@ export function deleteManagerSettings(options: ManagerSettingsOptions & { scope:
     throw new Error("Invalid settings scope");
   const filePath = managerSettingsPath(options, options.scope);
   const entry = options.scope === "project"
-    ? layer(options.cwd, [".pi", "agent", "subagent-manager"])
-    : layer(options.agentDir, ["subagent-manager"]);
+    ? layer(options.cwd, [".pi", "agent", "keel-crew"])
+    : layer(options.agentDir, ["keel-crew"]);
   // Malformed JSON is removable; symlinks and non-files are refused by settingsFileExists.
   if (!settingsFileExists(entry)) return { filePath, deleted: false };
   unlinkSync(entry.filePath);

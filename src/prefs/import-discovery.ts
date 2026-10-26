@@ -104,8 +104,8 @@ function collectCandidates(
     resolveLiteral(entry, agentDir, homeDir),
   );
   const managerDirs = [
-    resolve(agentDir, "subagent-manager", "agents"),
-    resolve(cwd, ".pi", "agent", "subagent-manager", "agents"),
+    resolve(agentDir, "keel-crew", "agents"),
+    resolve(cwd, ".pi", "agent", "keel-crew", "agents"),
   ];
   const projectRoot = options.includeProject ? findNearestProjectRoot(cwd, homeDir) : undefined;
   const projectSettingsDir = projectRoot
