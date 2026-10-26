@@ -1,6 +1,6 @@
 {
   "name": "keel-crew",
-  "version": "0.32.0",
+  "version": "0.33.0",
   "description": "Hierarchical, steerable subagent threads for pi",
   "type": "module",
   "engines": {

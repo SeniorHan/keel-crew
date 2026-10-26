@@ -4,6 +4,18 @@ Generated from version tags and merged GitHub pull requests. Do not edit this fi
 
 ## 0.x — Pre-1.0 releases
 
+### [v0.33.0] — Rename to keel-crew (local fork, 2026-10-23)
+
+> Clean-break rename: every residual `pi-subagent-manager` / `subagent-manager` reference is now `keel-crew`. No legacy-path fallback.
+
+#### Breaking changes
+- **Settings directory moved.** Manager settings/agents now live at `~/.pi/agent/keel-crew/` (project scope: `.pi/agent/keel-crew/`). The old `subagent-manager/` directory is no longer read — migrate by renaming the directory.
+- **Housekeeping usage kind** changed from `subagent-manager` to `keel-crew`.
+- **Extension identity check** accepts only `manifest.name === "keel-crew"`.
+
+#### Changed
+- All docs, README (install via `pi install git:git@github.com:SeniorHan/keel-crew.git`), release skill, smoke script, and `.gitignore` updated; demo asset renamed to `keel-crew-demo.gif`. CHANGELOG history intentionally unchanged.
+
 ### [v0.32.0] — Tap-to-background for foreground spawns (local fork, 2026-10-23)
 
 > Local fork. Mirrors keel-bash v0.6.0 (tap-to-background).
