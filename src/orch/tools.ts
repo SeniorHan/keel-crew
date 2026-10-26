@@ -103,7 +103,7 @@ export function agentTools(
     ),
     make(
       "agent_spawn",
-      "生成命名子代理,子代理只收自己的 task 与类型 prompt。传上下文:把自含简报(决策/路径/文件位置)写进 task,或指向文件。默认前台等待;wait:false 转后台,完成/失败/被停时收到唤醒消息,勿轮询。timeout 到点仅发状态事件(状态/耗时/tokens/最近输出),绝不停止子代理,续期用 agent_steer。budgetTokens 超限即停子代理并发事件,session 仍可经 agent_output 读取。并行时先以 wait:false 生成全部独立兄弟,再 agent_wait;有委派工具的子代理照做。可用类型用 agent_types 查询。",
+      "生成命名子代理,子代理只收自己的 task 与类型 prompt。传上下文:把自含简报(决策/路径/文件位置)写进 task,或指向文件。默认前台等待;wait:false 转后台,完成/失败/被停时收到唤醒消息,勿轮询。timeout 到点仅发状态事件(状态/耗时/tokens/最近输出),绝不停止子代理,续期用 agent_steer。上游断流会被自动无损重试(最多 3 次、退避 10/30/90s,不改任务、不丢上下文),过程不唤醒你,只有终态才回报,所以一次失败报告就是真的没救了;失败原因会写明是 upstream interruption 还是 model error,并附已耗 token。budgetTokens 超限即停子代理并发事件,session 仍可经 agent_output 读取。并行时先以 wait:false 生成全部独立兄弟,再 agent_wait;有委派工具的子代理照做。可用类型用 agent_types 查询。",
       Type.Object({
         path: Type.String({
           description:

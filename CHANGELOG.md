@@ -4,6 +4,21 @@ Generated from version tags and merged GitHub pull requests. Do not edit this fi
 
 ## 0.x — Pre-1.0 releases
 
+### [v0.34.0] — Lossless recovery from upstream interruptions (local fork, 2026-10-26)
+
+> A dead subagent used to be indistinguishable from a budget kill or a caller stop, and the parent had to re-derive the cause from token counts. Now the driver says what happened, and a dropped stream is repaired instead of reported.
+
+#### Added
+- **Request-level retry.** The wrapped stream function withholds the `start` event until real content arrives, so a provider that dies before its first token leaves no trace: the request is retried in place (10 s / 30 s / 90 s) and the agent loop only ever sees a clean stream.
+- **Turn-level lossless recovery.** When a stream dies after partial output, the failed assistant message and that turn's tool results are hidden with a context edit, `session.refreshContext()` reprojects agent state, and `agent.continue()` replays the turn from the context it had before it started. The session file keeps both the abandoned turn and the edit that hid it, so the transcript stays auditable.
+- **Faithful settle reasons.** `ThreadView.settleReason` (`completed`, `upstream-interrupted`, `model-error`, `budget`, `stopped`, `paused`) and `ThreadView.recovery` are reported on `settled` events. Failure reports name the real cause, quote the provider, list every interruption attempt, and print the tokens actually spent — with an explicit "the budget was never the cause" when the run died far below its cap.
+
+#### Changed
+- Quota/billing errors and context overflows are terminal on the first attempt; `aborted` streams, rate limits, 5xx and network errors are transient.
+- Recovery never wakes the parent: it updates the thread status (`Upstream interruption; lossless recovery 1/3 in 30s` → `Recovered after 1 upstream interruption`) and only the terminal outcome settles the thread. Failed rows carry a `↻n` badge.
+- `agent_spawn`'s description now tells the model that upstream drops are recovered automatically, so a failure report means the run really failed.
+- Budget kills keep a `budget` settle reason instead of being reported as a caller stop.
+
 ### [v0.33.0] — Rename to keel-crew (local fork, 2026-10-23)
 
 > Clean-break rename: every residual `pi-subagent-manager` / `subagent-manager` reference is now `keel-crew`. No legacy-path fallback.

@@ -137,6 +137,21 @@ sequenceDiagram
     Main->>Main: Continue remaining work or give final recap
 ```
 
+## Lossless recovery from upstream interruptions
+
+A dropped provider stream is an accident, not a verdict. Two layers rebuild the turn without editing the task or the conversation:
+
+| Layer | Catches | Mechanism |
+| --- | --- | --- |
+| Request (`src/orch/stream-retry.ts`) | The stream died **before any content** arrived | The `start` event is withheld until real content shows up, so a dead request leaves nothing behind. The request is retried in place; the agent loop never sees the failure. |
+| Turn (`src/orch/runtime.ts`) | The stream died **after partial output** | The failed assistant message and that turn's tool results are hidden with `sessionManager.appendContextEdit(id, null)`, `session.refreshContext()` reprojects agent state, and `agent.continue()` reruns the turn from the context it had before it started. The transcript keeps both the abandoned turn and the edit that hid it. |
+
+- Both layers back off 10 s / 30 s / 90 s (three attempts) and stop immediately on a user stop, a pause, a shutdown, or a budget kill.
+- Only transient failures are retried: `aborted` streams, rate limits, 5xx, network errors. Quota/billing errors and context overflows are terminal on the first try.
+- Recovery is **progress, not an outcome**: it emits a `recovery` driver event that updates the thread status (`Upstream interruption; lossless recovery 1/3 in 30s`, then `Recovered after 1 upstream interruption`) and never wakes the parent.
+- The parent is woken once, at the end. A failure report names what actually happened: `upstream-interrupted` or `model-error`, the provider's own words, every interruption attempt, and the tokens actually spent — with an explicit note when the budget was never the cause. A budget kill keeps its own `budget` attribution instead of looking like a caller stop.
+- Reverting a turn discards that turn's partial output. Agents that must not lose work stream it to a file as they go.
+
 ## Settings, cancellation, and persistence
 
 - **Subagent Mode Off:** suppresses notification delivery and automatic turns. Matching-session mailbox entries remain available for reconciliation when enabled. **Final Recap off** changes detached completion behavior to ordinary wakes; it is not a master switch for all automatic turns.
@@ -150,4 +165,6 @@ These records track notification delivery and trigger consumption, not successfu
 
 - [`src/index.ts`](../src/index.ts): `delivery`, `pendingRootNotifications`, `pendingSummaries`, `scheduleRootTurn`, and session lifecycle hooks.
 - [`src/orch/manager.ts`](../src/orch/manager.ts): `outstandingAsync`, reporting timers, and terminal-state settlement.
+- [`src/orch/stream-retry.ts`](../src/orch/stream-retry.ts), [`src/orch/interrupted.ts`](../src/orch/interrupted.ts): request-level retry and the faithful interruption report.
+- [`tests/stream-retry.test.ts`](../tests/stream-retry.test.ts), [`tests/recovery.test.ts`](../tests/recovery.test.ts): withheld `start`, retry exhaustion, non-retryable providers, local stop/pause never recovering, replay from the same session, and the retained transcript.
 - [`tests/final-recap-integration.test.ts`](../tests/final-recap-integration.test.ts): all six completion orders for three timed siblings, nested-last completion, busy-state retry, timeout/completion coalescing, and completion during an automatic continuation. The compaction case simulates the SDK's busy state; it does not run a content-compaction pass.

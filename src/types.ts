@@ -42,6 +42,19 @@ export interface AgentType {
   baseFilePath?: string;
 }
 export type ThreadState = "starting" | "running" | "paused" | "completed" | "failed" | "stopped";
+/**
+ * Why the most recent run ended. `failed` alone cannot distinguish an upstream drop from a
+ * budget stop, which previously caused recipients to misdiagnose interruptions as exhaustion.
+ */
+export type SettleReason =
+  "completed" | "upstream-interrupted" | "model-error" | "budget" | "stopped" | "paused";
+/** Lossless recovery bookkeeping for one run (live only; a new run starts from zero). */
+export interface RecoveryRecord {
+  /** Recovery attempts used by this run (0 when the first attempt succeeded). */
+  attempts: number;
+  /** Interruption reasons in the order they happened. */
+  reasons: SettleReason[];
+}
 export interface ThreadView {
   path: string;
   parent: string | null;
@@ -63,6 +76,10 @@ export interface ThreadView {
   summary?: string;
   output?: string;
   error?: string;
+  /** Attribution of the most recent run's ending; absent while a first run is still active. */
+  settleReason?: SettleReason;
+  /** Live only: recovery attempts spent by the current/most recent run. */
+  recovery?: RecoveryRecord;
   createdAt: number;
   updatedAt: number;
   sessionFile?: string;
@@ -98,6 +115,18 @@ export type DriverEvent =
       text: string;
       sessionFile?: string;
       sessionLeafId?: string | null;
+    }
+  | {
+      kind: "recovery";
+      /** retry = waiting for the next attempt; recovered = a later attempt succeeded. */
+      phase: "retry" | "recovered";
+      attempts: number;
+      maxAttempts: number;
+      reasons: SettleReason[];
+      /** Backoff before the next attempt, for the `retry` phase. */
+      delayMs?: number;
+      spentInput?: number;
+      detail?: string;
     }
   | {
       kind: "usage";
@@ -161,6 +190,10 @@ export interface DriverOptions {
   parentSessionFile?: string;
   sessionLeafId?: string | null;
   signal: AbortSignal;
+  /** Request-level retry delays for dropped streams. Defaults to 10/30/90 s. */
+  streamRetryBackoffMs?: readonly number[];
+  /** Turn-level lossless recovery delays. Its length caps the number of recovery attempts. */
+  recoveryBackoffMs?: readonly number[];
 }
 export interface SavedThreadView {
   path: string;
@@ -226,7 +259,14 @@ export type ThreadEvent =
   | { kind: "change"; thread: ThreadView }
   | { kind: "metrics"; thread: ThreadView }
   | { kind: "update"; thread: ThreadView; message: string; recipient: string }
-  | { kind: "settled"; thread: ThreadView; recipient: string; async: boolean }
+  | {
+      kind: "settled";
+      thread: ThreadView;
+      recipient: string;
+      async: boolean;
+      /** Faithful attribution of why the run ended; never guess it from tokens. */
+      settleReason?: SettleReason;
+    }
   /** A spawn timeout elapsed while the child is still running. The child is NOT stopped. */
   | {
       kind: "timeout";

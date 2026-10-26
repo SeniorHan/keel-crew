@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
 import { clampThinkingLevel } from "@earendil-works/pi-ai/compat";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, realpath } from "node:fs/promises";
@@ -27,9 +27,19 @@ import {
 } from "./mailbox.ts";
 import { selectTools } from "../prefs/config.ts";
 import { TranscriptChannel } from "./transcript.ts";
+import { RunInterruptedError, type InterruptReason } from "./interrupted.ts";
+import {
+  DEFAULT_STREAM_RETRY_BACKOFF_MS,
+  sleepUnlessAborted,
+  withStreamRetry,
+} from "./stream-retry.ts";
 import { discoverSubagentExtensions, selectSubagentExtensions } from "./extensions.ts";
 import type { InheritedToolSource } from "./inherited-tools.ts";
-import type { ModelSelectionMode, SubagentExtensionSelection, ToolFilteringMode } from "../prefs/settings.ts";
+import type {
+  ModelSelectionMode,
+  SubagentExtensionSelection,
+  ToolFilteringMode,
+} from "../prefs/settings.ts";
 import {
   modelIdentity,
   getModelPreferences,
@@ -43,9 +53,17 @@ import {
   type DriverFactory,
   type DriverOptions,
   type ThinkingLevel,
+  type RecoveryRecord,
 } from "../types.ts";
 
 const BUILTINS = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+/**
+ * Lossless recovery budget for one run: after an upstream interruption the driver hides the
+ * failed turn and continues the same session, so the agent keeps its task and its findings.
+ */
+const RECOVERY_BACKOFF_MS = [10_000, 30_000, 90_000] as const;
+/** Wake-up granularity while backing off, so stop/pause stay responsive. */
+const RECOVERY_POLL_MS = 250;
 /** Persisted before transcript messages so older-leaf restores still carry ownership. */
 const THREAD_OWNERSHIP_TYPE = "pi-subagent:thread:v1";
 const SESSION_FILE_ERROR =
@@ -717,14 +735,6 @@ export function createDriverFactory(
       await disposeSession();
       throw error;
     }
-    const streamFunction = session.agent.streamFunction;
-    session.agent.streamFunction = async (requestModel, context, streamOptions) => {
-      assertScopedRequestAuthorized(
-        modelIdentity(requestModel),
-        normalizeScopedModels(getRootContext().scopedModels),
-      );
-      return streamFunction(requestModel, context, streamOptions);
-    };
     const mailbox = new DurableMailbox(sessionManager);
     const emitCheckpoint = () =>
       options.onEvent({
@@ -796,8 +806,33 @@ export function createDriverFactory(
     const countedUsage = new WeakSet<object>();
     let finalOutput = "";
     let abortPromise: Promise<void> | undefined;
+    const recovery: RecoveryRecord = { attempts: 0, reasons: [] };
     const emit = (kind: "activity" | "error", text: string, detail?: string) =>
       options.onEvent({ kind, text: text.slice(0, 1000), ...(detail ? { detail } : {}) });
+    // Layer 1: retry a provider request that died before emitting any content. The wrapper
+    // holds the upstream `start` event, so a dropped connection never leaves a partial
+    // message in the agent loop and the retry is invisible above this point.
+    const streamFunction = session.agent.streamFunction;
+    const streamRetryBackoff = options.streamRetryBackoffMs ?? DEFAULT_STREAM_RETRY_BACKOFF_MS;
+    const recoveryBackoff = options.recoveryBackoffMs ?? RECOVERY_BACKOFF_MS;
+    session.agent.streamFunction = async (requestModel, context, streamOptions) => {
+      assertScopedRequestAuthorized(
+        modelIdentity(requestModel),
+        normalizeScopedModels(getRootContext().scopedModels),
+      );
+      return withStreamRetry(streamFunction, {
+        signal: options.signal,
+        backoffMs: streamRetryBackoff,
+        shouldRetry: () => !disposed && !aborted && !options.shouldPause(),
+        onRetry: (notice) =>
+          emit(
+            "activity",
+            `Upstream stream dropped before any output; retrying losslessly in ${Math.round(
+              notice.delayMs / 1000,
+            )}s (${notice.attempt}/${notice.maxAttempts})`,
+          ),
+      })(requestModel, context, streamOptions);
+    };
     const assistantUsage = (message: AssistantMessage) => {
       const usage = message.usage;
       const input = usage.input + usage.cacheRead + usage.cacheWrite;
@@ -880,6 +915,100 @@ export function createDriverFactory(
     const assertOpen = () => {
       if (disposed) throw new Error("Subagent driver is disposed");
     };
+    const text = (error: unknown) => (error instanceof Error ? error.message : String(error));
+    const lastAssistantOverall = () =>
+      session.messages.filter((entry) => entry.role === "assistant").at(-1);
+    const canRecover = () =>
+      !disposed && !aborted && !options.signal.aborted && !options.shouldPause();
+    /**
+     * A dropped stream is transient by definition; a model error is only worth another run when
+     * the SDK classifies it as such (quota/billing exhaustion must fail fast, not burn 3 retries).
+     */
+    const isRecoverable = (failed: AssistantMessage, reason: InterruptReason) =>
+      reason === "upstream-interrupted" ? true : isRetryableAssistantError(failed);
+    /**
+     * Layer 2: omit the interrupted turn from the model context without deleting it from the
+     * session file, then let the agent continue from the restored transcript. This mirrors the
+     * SDK's own recovery protocol (`appendContextEdit(null)` + `refreshContext`), so no synthetic
+     * user message is injected and the message sequence stays legal.
+     */
+    const omitInterruptedTurn = (failed: AssistantMessage): boolean => {
+      const branch = sessionManager.getBranch();
+      let index = -1;
+      for (let cursor = branch.length - 1; cursor >= 0; cursor -= 1) {
+        const entry = branch[cursor]!;
+        if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+        if (entry.message.timestamp !== failed.timestamp) continue;
+        index = cursor;
+        break;
+      }
+      if (index < 0) return false;
+      const targets = [branch[index]!];
+      // Tool results produced by the interrupted turn belong to it; anything later is kept.
+      for (let cursor = index + 1; cursor < branch.length; cursor += 1) {
+        const entry = branch[cursor]!;
+        if (entry.type !== "message") continue;
+        if (entry.message.role !== "toolResult") break;
+        targets.push(entry);
+      }
+      for (const target of targets) sessionManager.appendContextEdit(target.id, null);
+      session.refreshContext();
+      const lastRole = session.messages.at(-1)?.role;
+      return lastRole !== undefined && lastRole !== "assistant";
+    };
+    const awaitRecoveryWindow = async (delayMs: number) => {
+      const deadline = Date.now() + delayMs;
+      for (;;) {
+        if (!canRecover()) return false;
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return true;
+        try {
+          await sleepUnlessAborted(Math.min(remaining, RECOVERY_POLL_MS), options.signal);
+        } catch {
+          return false;
+        }
+      }
+    };
+    const recoverInterruptedTurn = async (
+      failed: AssistantMessage,
+      reason: InterruptReason,
+    ): Promise<boolean> => {
+      if (recovery.attempts >= recoveryBackoff.length) return false;
+      if (!canRecover()) return false;
+      if (!isRecoverable(failed, reason)) return false;
+      if (!omitInterruptedTurn(failed)) return false;
+      const attempt = recovery.attempts + 1;
+      const delayMs = recoveryBackoff[attempt - 1]!;
+      recovery.attempts = attempt;
+      recovery.reasons.push(reason);
+      const maxAttempts = recoveryBackoff.length;
+      options.onEvent({
+        kind: "recovery",
+        phase: "retry",
+        attempts: attempt,
+        maxAttempts,
+        reasons: [...recovery.reasons],
+        delayMs,
+        spentInput: settledInput,
+        ...(failed.errorMessage ? { detail: failed.errorMessage } : {}),
+      });
+      // Observability only: this is not a settle, so it must not wake the parent thread.
+      emit(
+        "activity",
+        `Upstream interruption ${attempt}/${maxAttempts}${
+          failed.errorMessage ? ` (${failed.errorMessage})` : ""
+        }; resuming the same session in ${Math.round(delayMs / 1000)}s (spent ${settledInput} input tokens)`,
+      );
+      if (!(await awaitRecoveryWindow(delayMs))) return false;
+      try {
+        await session.agent.continue();
+        await session.waitForIdle();
+      } catch (error) {
+        emit("error", `Lossless recovery could not resume the session: ${text(error)}`);
+        return false;
+      }
+      return true;
+    };
     return {
       get sessionFile() {
         const file = session.sessionFile;
@@ -895,23 +1024,58 @@ export function createDriverFactory(
         aborted = false;
         baseline = session.messages.length;
         finalOutput = "";
+        recovery.attempts = 0;
+        recovery.reasons.length = 0;
         try {
           await enforceScopedModelPolicy();
           await resumePending();
           await session.prompt(message, { expandPromptTemplates: false });
           await session.waitForIdle();
-          const last = session.messages
-            .slice(baseline)
-            .filter((msg) => msg.role === "assistant")
-            .at(-1);
-          if (aborted || last?.stopReason === "aborted") throw new Error("Subagent run aborted");
-          if (last?.stopReason === "error")
-            throw new Error(last.errorMessage || "Subagent model failed");
-          if (last && !options.shouldPause())
-            finalOutput = last.content
-              .filter((block) => block.type === "text")
-              .map((block) => block.text)
-              .join("");
+          // Re-inspect after every lossless recovery: the same session continues, so the turn
+          // that just ran is the one to judge. Only the first pass is bounded by the baseline.
+          let bounded = true;
+          for (;;) {
+            const last = bounded
+              ? session.messages
+                  .slice(baseline)
+                  .filter((msg) => msg.role === "assistant")
+                  .at(-1)
+              : lastAssistantOverall();
+            if (aborted) throw new Error("Subagent run aborted");
+            const reason: InterruptReason | undefined =
+              last?.stopReason === "aborted"
+                ? "upstream-interrupted"
+                : last?.stopReason === "error"
+                  ? "model-error"
+                  : undefined;
+            if (!reason) {
+              if (last && !options.shouldPause())
+                finalOutput = last.content
+                  .filter((block) => block.type === "text")
+                  .map((block) => block.text)
+                  .join("");
+              break;
+            }
+            if (await recoverInterruptedTurn(last!, reason)) {
+              bounded = false;
+              continue;
+            }
+            throw new RunInterruptedError({
+              reason,
+              spentInput: settledInput,
+              ...(last?.errorMessage ? { providerMessage: last.errorMessage } : {}),
+              recovery: { attempts: recovery.attempts, reasons: [...recovery.reasons] },
+            });
+          }
+          if (recovery.attempts > 0)
+            options.onEvent({
+              kind: "recovery",
+              phase: "recovered",
+              attempts: recovery.attempts,
+              maxAttempts: recoveryBackoff.length,
+              reasons: [...recovery.reasons],
+              spentInput: settledInput,
+            });
         } catch (error) {
           emit("error", error instanceof Error ? error.message : String(error));
           throw error;

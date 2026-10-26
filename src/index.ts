@@ -476,14 +476,19 @@ export default function piSubagent(pi: ExtensionAPI): void {
           ? `Agent ${thread.path} exhausted its input-token budget (${event.spentTokens} > ${event.budgetTokens}) and was stopped; its session is retained (read it with agent_output).\n` +
             `Recent output:\n${event.recentOutput || "(none yet)"}`
           : event.kind === "timeout"
-          ? `Agent ${thread.path} hit its ${event.timeout}s spawn timeout and is STILL RUNNING (not stopped). ` +
-            `State: ${thread.state}; status: ${thread.status}; elapsed: ${fmtMs(elapsed)}; ` +
-            `tokens: ${thread.inputTokens ?? 0} in / ${thread.outputTokens ?? 0} out.\n` +
-            `Recent output:\n${event.recentOutput || "(none yet)"}\n` +
-            "Decide: agent_steer with timeout only (no message) to be notified again later without disturbing it, agent_wait for it, agent_steer to redirect, agent_stop to cancel, or let it continue."
-          : thread.state === "completed"
-            ? `Agent ${thread.path} completed. Final answer:\n${thread.output?.slice(0, 16000) ?? "(no text)"}${(thread.output?.length ?? 0) > 16000 ? "\n[Output truncated; use agent_output for more.]" : ""}`
-            : `Agent ${thread.path} is ${thread.state}: ${thread.status}. ${thread.state === "paused" ? "No answer handback; send input to resume the same session." : "Session retained for further input."}`;
+            ? `Agent ${thread.path} hit its ${event.timeout}s spawn timeout and is STILL RUNNING (not stopped). ` +
+              `State: ${thread.state}; status: ${thread.status}; elapsed: ${fmtMs(elapsed)}; ` +
+              `tokens: ${thread.inputTokens ?? 0} in / ${thread.outputTokens ?? 0} out.\n` +
+              `Recent output:\n${event.recentOutput || "(none yet)"}\n` +
+              "Decide: agent_steer with timeout only (no message) to be notified again later without disturbing it, agent_wait for it, agent_steer to redirect, agent_stop to cancel, or let it continue."
+            : thread.state === "completed"
+              ? `Agent ${thread.path} completed. Final answer:\n${thread.output?.slice(0, 16000) ?? "(no text)"}${(thread.output?.length ?? 0) > 16000 ? "\n[Output truncated; use agent_output for more.]" : ""}`
+              : thread.state === "failed"
+                ? // Say what actually happened: the driver's own diagnosis, never a guess from spend.
+                  `Agent ${thread.path} failed${thread.settleReason ? ` (${thread.settleReason})` : ""}.\n` +
+                  `${thread.error ?? thread.status}\n` +
+                  "Session fully retained — agent_steer to resume the same session, agent_output to read it, agent_stop to cancel."
+                : `Agent ${thread.path} is ${thread.state}: ${thread.status}. ${thread.state === "paused" ? "No answer handback; send input to resume the same session." : "Session retained for further input."}`;
     try {
       if (event.recipient === "/root") {
         const recap =

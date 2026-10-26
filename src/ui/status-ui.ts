@@ -26,7 +26,7 @@ import {
 } from "./dialog.ts";
 import type { ThreadService } from "../types.ts";
 import type { LoaderStyle } from "../prefs/settings.ts";
-import { buildStatusTree, threadActivity, type StatusRow } from "./thread-tree.ts";
+import { buildStatusTree, recoveryBadge, threadActivity, type StatusRow } from "./thread-tree.ts";
 import {
   AGENT_PROGRESS_INTERVAL,
   agentProgressIcon,
@@ -77,7 +77,12 @@ function label(row: StatusRow): string {
     return row.path === ROOT
       ? `${dialogText(row.path)}  main  running  main`
       : `${dialogText(row.path)}  missing parent`;
-  return [row.path, row.thread.type, row.thread.state, row.thread.status]
+  return [
+    row.path,
+    row.thread.type,
+    row.thread.state,
+    `${row.thread.status}${recoveryBadge(row.thread)}`,
+  ]
     .map((part) => dialogText(part))
     .join("  ");
 }
