@@ -179,7 +179,7 @@ test("extension reload applies manager settings without reopening the parent", a
           });
       await assert.rejects(spawn(), /depth limit/);
       await writeFile(
-        join(directory, "subagent-manager", "settings.json"),
+        join(directory, "keel-crew", "settings.json"),
         JSON.stringify({ maxLevels: 3 }),
       );
       await session.prompt("/agents reload");

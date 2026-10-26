@@ -161,7 +161,7 @@ test("real SDK mode changes update tool visibility and prompt on reload without 
     const stale = session.getToolDefinition("agent_spawn")!;
     const otherTools = session.getActiveToolNames().filter((name) => !name.startsWith("agent_"));
     for (const mode of ["off", "orchestration", "off", "opportunistic"] as const) {
-      await writeFile(join(directory, "subagent-manager", "settings.json"), JSON.stringify({ subagentMode: mode }));
+      await writeFile(join(directory, "keel-crew", "settings.json"), JSON.stringify({ subagentMode: mode }));
       await reload.handler("reload", session.extensionRunner.createCommandContext());
       const enabled = mode !== "off";
       assert.equal(session.getActiveToolNames().includes("agent_spawn"), enabled);
@@ -204,7 +204,7 @@ test("off keeps running work but suppresses its notifications until re-enabled",
     await session.prompt("Assign background work");
     await waitFor(() => requests.some((request) => request.path === "/root/background"), "worker starts");
     const reload = session.extensionRunner.getCommand("agents")!;
-    await writeFile(join(directory, "subagent-manager", "settings.json"), JSON.stringify({ subagentMode: "off" }));
+    await writeFile(join(directory, "keel-crew", "settings.json"), JSON.stringify({ subagentMode: "off" }));
     await reload.handler("reload", session.extensionRunner.createCommandContext());
     finish(answer("Retained result"));
     await waitFor(() => session.sessionManager.getEntries().some((entry) =>
@@ -212,7 +212,7 @@ test("off keeps running work but suppresses its notifications until re-enabled",
     const notifications = () => session.sessionManager.getEntries().filter((entry) =>
       entry.type === "custom_message" && entry.customType === "pi-subagent:update");
     assert.equal(notifications().length, 0, "no plugin message while off");
-    await writeFile(join(directory, "subagent-manager", "settings.json"), JSON.stringify({ subagentMode: "opportunistic" }));
+    await writeFile(join(directory, "keel-crew", "settings.json"), JSON.stringify({ subagentMode: "opportunistic" }));
     await reload.handler("reload", session.extensionRunner.createCommandContext());
     await waitFor(() => notifications().length === 1, "retained result delivered on re-enable");
     assert.deepEqual(errors, []);
@@ -252,12 +252,12 @@ test("streaming notifications stay in the mailbox, do not duplicate on reload, a
       await reload.handler("reload", session.extensionRunner.createCommandContext());
       await reload.handler("reload", session.extensionRunner.createCommandContext());
       assert.equal(notifications().length, 0, "do not enqueue mailbox replay while streaming");
-      await writeFile(join(directory, "subagent-manager", "settings.json"), JSON.stringify({ subagentMode: "off" }));
+      await writeFile(join(directory, "keel-crew", "settings.json"), JSON.stringify({ subagentMode: "off" }));
       await reload.handler("reload", session.extensionRunner.createCommandContext());
       finishRoot(answer("Root settled"));
       await prompt;
       assert.equal(notifications().length, 0, "off prevents previously accepted delivery at turn end");
-      await writeFile(join(directory, "subagent-manager", "settings.json"), JSON.stringify({ subagentMode: "opportunistic" }));
+      await writeFile(join(directory, "keel-crew", "settings.json"), JSON.stringify({ subagentMode: "opportunistic" }));
       await reload.handler("reload", session.extensionRunner.createCommandContext());
       await reload.handler("reload", session.extensionRunner.createCommandContext());
       assert.equal(notifications().length, 1, "deliver once when enabled and idle");

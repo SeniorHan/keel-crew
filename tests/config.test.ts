@@ -42,9 +42,9 @@ function fixture(t: TestContext) {
   const dirs = {
     bundledDir: join(root, "bundled"),
     projectLegacy: join(cwd, ".pi", "agents"),
-    project: join(cwd, ".pi", "agent", "subagent-manager", "agents"),
+    project: join(cwd, ".pi", "agent", "keel-crew", "agents"),
     userLegacy: join(agentDir, "agents"),
-    user: join(agentDir, "subagent-manager", "agents"),
+    user: join(agentDir, "keel-crew", "agents"),
   };
   for (const directory of Object.values(dirs)) mkdirSync(directory, { recursive: true });
   return { cwd, agentDir, ...dirs };

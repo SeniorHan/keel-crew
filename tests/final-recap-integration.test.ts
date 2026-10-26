@@ -262,7 +262,7 @@ for (const suppression of ["finalRecap", "off"] as const) {
       const session = await open(SessionManager.create(cwd));
       try {
         await session.prompt("Delegate background work");
-        const settingsFile = join(directory, "subagent-manager", "settings.json");
+        const settingsFile = join(directory, "keel-crew", "settings.json");
         await writeFile(settingsFile, JSON.stringify(suppression === "off"
           ? { finalRecap: true, subagentMode: "off" } : { finalRecap: false }));
         await reload(session);

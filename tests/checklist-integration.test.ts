@@ -259,8 +259,8 @@ async function withExtension(
   const dir = temp(t);
   const old = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = dir;
-  mkdirSync(join(dir, "subagent-manager"), { recursive: true });
-  writeFileSync(join(dir, "subagent-manager", "settings.json"), JSON.stringify(options.settings));
+  mkdirSync(join(dir, "keel-crew"), { recursive: true });
+  writeFileSync(join(dir, "keel-crew", "settings.json"), JSON.stringify(options.settings));
   if (options.prefs !== undefined) writeFileSync(join(dir, "pi-checklist.json"), JSON.stringify(options.prefs));
   markImportOffered(dir);
   const file = installPackage(dir, "ext", { name: "pi-checklist", version: options.version ?? "3.0.0" });

@@ -580,7 +580,7 @@ for (const stopReason of ["stop", "error", "aborted", "empty"] as const) {
     assert.deepEqual(entry.usage, reportedUsage);
     assert.equal(entry.model, "concrete-response-model");
     assert.equal(entry.provider, "response-provider");
-    assert.equal(entry.kind, "subagent-manager");
+    assert.equal(entry.kind, "keel-crew");
     assert.doesNotMatch(JSON.stringify(entries), /private|Reading files|provider failed/);
     assert.equal(refreshed, 1);
   });

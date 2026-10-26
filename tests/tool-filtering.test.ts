@@ -46,7 +46,7 @@ test(
         const rootTools = session.getActiveToolNames();
         const reload = async (toolFiltering: "allowed" | "all-except-blocked" | "all") => {
           await writeFile(
-            join(directory, "subagent-manager", "settings.json"),
+            join(directory, "keel-crew", "settings.json"),
             JSON.stringify({ toolFiltering }),
           );
           await session.prompt("/agents reload");

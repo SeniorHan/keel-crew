@@ -47,8 +47,8 @@ async function run(
     mkdirSync(join(agentDir, "extensions"), { recursive: true });
     writeFileSync(join(agentDir, "extensions", name), "export default function() {}");
   }
-  const userFile = join(agentDir, "subagent-manager", "settings.json");
-  const projectFile = join(root, ".pi", "agent", "subagent-manager", "settings.json");
+  const userFile = join(agentDir, "keel-crew", "settings.json");
+  const projectFile = join(root, ".pi", "agent", "keel-crew", "settings.json");
   for (const [file, contents] of [[userFile, global ?? settings], [projectFile, project]] as const) {
     if (contents === undefined) continue;
     mkdirSync(dirname(file), { recursive: true });

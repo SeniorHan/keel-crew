@@ -84,13 +84,13 @@ test("discovers user and project paths without package builtins or manager stora
   writeMd(join(dirs.cwd, ".agents", "agents", "tintin.md"), definition("tintin-agent"));
   writeMd(join(dirs.agentDir, "extensions", "subagent", "agents", "b.md"), definition("builtin"));
   writeMd(join(dirs.cwd, "node_modules", "pkg", "agents", "packaged.md"), definition("packaged"));
-  writeMd(join(dirs.agentDir, "subagent-manager", "agents", "ours.md"), definition("mgr-user"));
+  writeMd(join(dirs.agentDir, "keel-crew", "agents", "ours.md"), definition("mgr-user"));
   writeMd(
-    join(dirs.cwd, ".pi", "agent", "subagent-manager", "agents", "ours.md"),
+    join(dirs.cwd, ".pi", "agent", "keel-crew", "agents", "ours.md"),
     definition("mgr-project"),
   );
   const settings = join(dirs.agentDir, "settings.json");
-  writeJson(settings, { subagents: { agentScanDirs: ["subagent-manager"] } });
+  writeJson(settings, { subagents: { agentScanDirs: ["keel-crew"] } });
 
   const result = discover(dirs);
   assert.deepEqual(names(result), ["home-agent", "project-agent", "tintin-agent", "user-agent"]);

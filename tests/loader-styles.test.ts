@@ -76,7 +76,7 @@ test("loader styles default to circle, layer by key, persist in both scopes and 
       "braille",
     );
   }
-  const projectFile = join(root, ".pi", "agent", "subagent-manager", "settings.json");
+  const projectFile = join(root, ".pi", "agent", "keel-crew", "settings.json");
   mkdirSync(dirname(projectFile), { recursive: true });
   writeFileSync(projectFile, JSON.stringify({ nerdFontIcons: true }));
   assert.equal(

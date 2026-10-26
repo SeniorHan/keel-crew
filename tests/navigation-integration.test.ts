@@ -320,7 +320,7 @@ for (const widgetMode of ["full", "minimal"] as const) {
 test("Right collapses for this session only, preserves Left entry and never saves preferences", async () => {
   const threads = [thread("running"), thread("paused", "/root/paused")];
   await fixture(async ({ editor, widget, hooks, ctx }) => {
-    const settingsFile = join(ctx.cwd, "subagent-manager", "settings.json");
+    const settingsFile = join(ctx.cwd, "keel-crew", "settings.json");
     const configuredMode = () => loadManagerSettings({
       cwd: ctx.cwd, agentDir: ctx.cwd, includeProject: false,
     }).settings.widgetMode;

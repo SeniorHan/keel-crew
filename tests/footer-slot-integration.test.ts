@@ -228,13 +228,13 @@ test(
           "a Nerd Font glyph prefixes the number",
         );
         await writeFile(
-          path.join(directory, "subagent-manager", "settings.json"),
+          path.join(directory, "keel-crew", "settings.json"),
           JSON.stringify({ costDisplay: "pi-footer-event", nerdFontIcons: false }),
         );
         await reloadSettings(session);
         assert.equal(lastValue(updates), "💵 $0.5000", "disabling labs switches to the emoji immediately");
         await writeFile(
-          path.join(directory, "subagent-manager", "settings.json"),
+          path.join(directory, "keel-crew", "settings.json"),
           JSON.stringify({ costDisplay: "pi-footer-event", nerdFontIcons: true }),
         );
         await reloadSettings(session);
@@ -313,7 +313,7 @@ test("default status key publishes before startup completes and Pi status includ
     await tool(session, "agent_spawn", { path: "worker", type: "worker", task: "Cost", wait: true, timeout: 0, budgetTokens: 0 });
     await tool(session, "agent_wait", { path: "worker" });
     assert.equal(statuses.get(WIDGET_ID), "💵 $0.5000");
-    await writeFile(path.join(directory, "subagent-manager", "settings.json"), JSON.stringify({ costDisplay: "pi-status", costValue: "total" }));
+    await writeFile(path.join(directory, "keel-crew", "settings.json"), JSON.stringify({ costDisplay: "pi-status", costValue: "total" }));
     await reloadSettings(session);
     assert.equal(statuses.get(WIDGET_ID), "Total: 💵 $0.5000");
     await session.prompt("Root work");

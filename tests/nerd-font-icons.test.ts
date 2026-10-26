@@ -91,8 +91,8 @@ test("labs toggle defaults off, layers per key, validates booleans, and persists
   assert.equal(loadManagerSettings(options).settings.nerdFontIcons, false);
   const globalFile = saveManagerSettings({ ...options, scope: "user", settings: { ...DEFAULT_MANAGER_SETTINGS, nerdFontIcons: true } });
   assert.equal(loadManagerSettings(options).settings.nerdFontIcons, true);
-  const projectFile = join(cwd, ".pi", "agent", "subagent-manager", "settings.json");
-  mkdirSync(join(cwd, ".pi", "agent", "subagent-manager"), { recursive: true });
+  const projectFile = join(cwd, ".pi", "agent", "keel-crew", "settings.json");
+  mkdirSync(join(cwd, ".pi", "agent", "keel-crew"), { recursive: true });
   writeFileSync(projectFile, JSON.stringify({ nerdFontIcons: false }));
   assert.equal(loadManagerSettings(options).settings.nerdFontIcons, false);
   assert.equal(loadManagerSettings({ ...options, includeProject: false }).settings.nerdFontIcons, true);

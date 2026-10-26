@@ -440,7 +440,7 @@ test("thread dialogs exclude root, discard viewer edits, and resume through stee
 });
 
 function userAgentsDir(agentDir: string) {
-  return join(agentDir, "subagent-manager", "agents");
+  return join(agentDir, "keel-crew", "agents");
 }
 
 async function configFixture(fileName = "worker.md") {
@@ -1704,7 +1704,7 @@ test("existing overlays are clean until edited and reverting a setting restores 
 test("sparse agent settings show saved scope dots and the full source cascade", async () => {
   const fixture = await bundledFixture();
   try {
-    const projectDir = join(fixture.root, ".pi", "agent", "subagent-manager", "agents");
+    const projectDir = join(fixture.root, ".pi", "agent", "keel-crew", "agents");
     await mkdir(projectDir, { recursive: true });
     const globalPath = join(userAgentsDir(fixture.agentDir), "coder.yml");
     const projectPath = join(projectDir, "coder.yaml");

@@ -77,13 +77,13 @@ export async function withOfflineHarness(
     const cwd = path.join(directory, "workspace");
     await mkdir(cwd);
     if (options.managerSettings) {
-      await mkdir(path.join(directory, "subagent-manager"));
+      await mkdir(path.join(directory, "keel-crew"));
       await writeFile(
-        path.join(directory, "subagent-manager", "settings.json"),
+        path.join(directory, "keel-crew", "settings.json"),
         JSON.stringify(options.managerSettings),
       );
     }
-    const agentsDir = path.join(directory, "subagent-manager", "agents");
+    const agentsDir = path.join(directory, "keel-crew", "agents");
     await mkdir(agentsDir, { recursive: true });
     for (const [name, content] of Object.entries(options.agentFiles)) {
       await writeFile(path.join(agentsDir, `${name}.md`), content);

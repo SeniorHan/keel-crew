@@ -39,9 +39,9 @@ async function withCommands(
   const oldDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = cwd;
   if (options.initialMode) {
-    mkdirSync(join(cwd, "subagent-manager"), { recursive: true });
+    mkdirSync(join(cwd, "keel-crew"), { recursive: true });
     writeFileSync(
-      join(cwd, "subagent-manager", "settings.json"),
+      join(cwd, "keel-crew", "settings.json"),
       JSON.stringify({ subagentMode: options.initialMode }),
     );
   } else markImportOffered(cwd); // Enabled command tests do not scan external agent directories.
@@ -248,7 +248,7 @@ test("off does not acknowledge migration or inject guidance", async () => {
   await withCommands(async ({ command, ctx, hooks, replies, cwd }) => {
     replies.push("subagentMode", "off", "save");
     await command.handler("settings", ctx);
-    rmSync(join(cwd, "subagent-manager", ".import-offered"));
+    rmSync(join(cwd, "keel-crew", ".import-offered"));
     assert.equal(
       await hooks.get("before_agent_start")!(
         { systemPrompt: "Main", prompt: `${IMPORT_REQUEST_PREFIX}manual request` },
@@ -273,7 +273,7 @@ test("dialog subcommands decline RPC mode without opening a dialog", async () =>
 
 test("only an accepted migration turn acknowledges first-run onboarding", async () => {
   await withCommands(async ({ hooks, ctx, cwd }) => {
-    rmSync(join(cwd, "subagent-manager", ".import-offered"));
+    rmSync(join(cwd, "keel-crew", ".import-offered"));
     const start = (prompt: string) =>
       hooks.get("before_agent_start")!({ prompt, systemPrompt: "Main" }, ctx);
     await start("Ordinary request");
@@ -417,7 +417,7 @@ test("saving widget mode refreshes immediately and reload reads the persisted ch
     }
     const { settings } = loadManagerSettings({ cwd, agentDir: cwd, includeProject: false });
     writeFileSync(
-      join(cwd, "subagent-manager", "settings.json"),
+      join(cwd, "keel-crew", "settings.json"),
       JSON.stringify({ ...settings, widgetMode: "minimal" }),
     );
     await command.handler("reload", ctx);

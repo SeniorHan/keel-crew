@@ -57,7 +57,7 @@ test(
           "off uses the first available preference even outside scope",
         );
 
-        const settingsPath = join(directory, "subagent-manager", "settings.json");
+        const settingsPath = join(directory, "keel-crew", "settings.json");
         await writeFile(settingsPath, JSON.stringify({ modelSelection: "pick-first-scoped" }));
         await session.prompt("/agents reload");
         assert.equal((await spawn("second")).state, "completed");

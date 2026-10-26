@@ -43,8 +43,8 @@ function fixture(t: TestContext) {
     root,
     cwd,
     agentDir,
-    globalFile: join(agentDir, "subagent-manager", "settings.json"),
-    projectFile: join(cwd, ".pi", "agent", "subagent-manager", "settings.json"),
+    globalFile: join(agentDir, "keel-crew", "settings.json"),
+    projectFile: join(cwd, ".pi", "agent", "keel-crew", "settings.json"),
   };
 }
 
@@ -304,7 +304,7 @@ test("symlinked ancestors above the owned scope directories are accepted", (t) =
 
 test("wrong file types at scope paths are refused on load and save", (t) => {
   const f = fixture(t);
-  writeFileSync(join(f.agentDir, "subagent-manager"), "not a directory");
+  writeFileSync(join(f.agentDir, "keel-crew"), "not a directory");
   assert.match(load(f, false).diagnostics[0], /Settings directory must be a directory/);
   rejects(() => save(f, "user", settings(1, 1, 1)), /Settings directory must be a directory/);
 
@@ -452,7 +452,7 @@ test("untrusted project saves and unknown scopes are rejected without touching d
   rejects(() => save(f, "project", settings(1, 1, 1), false), /not enabled\/trusted/);
   assert.equal(existsSync(join(f.cwd, ".pi")), false);
   rejects(() => save(f, "global" as "user", settings(1, 1, 1)), /Invalid settings scope/);
-  assert.equal(existsSync(join(f.agentDir, "subagent-manager")), false);
+  assert.equal(existsSync(join(f.agentDir, "keel-crew")), false);
 });
 
 test("all tool filtering modes save and load with trusted-project precedence", (t) => {
@@ -697,7 +697,7 @@ test("layer snapshots preserve validated provenance, precedence and legacy norma
 test("layer scope follows this project's file rather than legacy cross-project UI preference", (t) => {
   const f = fixture(t);
   const options = { ...f, includeProject: true };
-  const uiStateFile = join(f.agentDir, "subagent-manager", "ui-state.json");
+  const uiStateFile = join(f.agentDir, "keel-crew", "ui-state.json");
   writeJson(uiStateFile, { saveScope: "project" });
   assert.equal(loadManagerSettingsLayers(options).scope, "user");
   writeJson(f.projectFile, {});
@@ -840,7 +840,7 @@ test("scope transitions require trust and a boolean without touching disk", (t) 
 });
 
 test("new layer and persistence APIs reject project symlinks at every owned path", (t) => {
-  for (const segments of [[], [".pi"], [".pi", "agent"], [".pi", "agent", "subagent-manager"], [".pi", "agent", "subagent-manager", "settings.json"]]) {
+  for (const segments of [[], [".pi"], [".pi", "agent"], [".pi", "agent", "keel-crew"], [".pi", "agent", "keel-crew", "settings.json"]]) {
     const f = fixture(t);
     const link = join(f.cwd, ...segments);
     const target = join(f.root, "outside");

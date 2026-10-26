@@ -358,8 +358,8 @@ async function runSettings(
 ) {
   const root = mkdtempSync(join(tmpdir(), "pi-housekeeping-ui-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const userFile = join(root, "subagent-manager", "settings.json");
-  const projectFile = join(root, ".pi", "agent", "subagent-manager", "settings.json");
+  const userFile = join(root, "keel-crew", "settings.json");
+  const projectFile = join(root, ".pi", "agent", "keel-crew", "settings.json");
   for (const [file, contents] of [
     [userFile, options.global],
     [projectFile, options.project],

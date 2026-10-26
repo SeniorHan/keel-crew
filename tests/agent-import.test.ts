@@ -124,7 +124,7 @@ test("first run consent and individual selection enqueue only selected paths, ne
     /"api": "openai-responses"/,
   ])
     assert.match(message, pattern);
-  assert.ok(!existsSync(join(f.agentDir, "subagent-manager", "agents")));
+  assert.ok(!existsSync(join(f.agentDir, "keel-crew", "agents")));
   assert.equal(readFileSync(selected, "utf8"), original);
   assert.equal(importWasOffered(f.agentDir), false); // Submission is not an acknowledgement.
   markImportOffered(f.agentDir); // Simulate the root before_agent_start acknowledgement.
@@ -161,7 +161,7 @@ test("manual import can retry onboarding; project sources require trust", async 
   f.choices.trusted = true;
   assert.equal(await f.run(false), true);
   assert.ok(f.messages[1]!.includes(project));
-  assert.ok(f.messages[1]!.includes(join(f.cwd, ".pi", "agent", "subagent-manager", "agents")));
+  assert.ok(f.messages[1]!.includes(join(f.cwd, ".pi", "agent", "keel-crew", "agents")));
 });
 
 test("non-TUI does not mark onboarding or send a model turn", async (t) => {
@@ -195,7 +195,7 @@ test("skills alone never open the import offer or selector", async (t) => {
 
 test("symlinked onboarding state fails closed without touching its target", async (t) => {
   const f = fixture(t);
-  const manager = join(f.agentDir, "subagent-manager");
+  const manager = join(f.agentDir, "keel-crew");
   mkdirSync(manager);
   const target = join(f.root, "target");
   writeFileSync(target, "untouched");

@@ -28,7 +28,7 @@ test("configured extension discovery respects trust, exclusions, packages and ma
   const installedManager = path.join(agentDir, "manager-copy");
   const localPackage = path.join(agentDir, "local-package");
   for (const [directory, name] of [
-    [installedManager, "pi-subagent-manager"],
+    [installedManager, "keel-crew"],
     [localPackage, "example"],
   ]) {
     await mkdir(directory);
