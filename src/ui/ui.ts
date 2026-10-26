@@ -42,7 +42,13 @@ import { getModelPreferences } from "../prefs/models.ts";
 import type { LoaderStyle, WidgetMode } from "../prefs/settings.ts";
 import { AGENT_PROGRESS_INTERVAL, agentProgressIcon, isAgentLoaderGlyph } from "./agent-loader.ts";
 export { AGENT_PROGRESS_INTERVAL, agentProgressIcon } from "./agent-loader.ts";
-import { buildStatusTree, lastStarted, threadActivity, type StatusRow } from "./thread-tree.ts";
+import {
+  buildStatusTree,
+  lastStarted,
+  recoveryBadge,
+  threadActivity,
+  type StatusRow,
+} from "./thread-tree.ts";
 import { THINKING_LEVELS, type AgentType, type ThreadService, type ThreadView } from "../types.ts";
 
 export type ThreadController = Pick<
@@ -505,7 +511,7 @@ export async function showThreads(
         }
         const labels = threads.map(
           (thread) =>
-            `${sanitizeText(thread.path)} [${sanitizeText(thread.state)}] ${sanitizeText(thread.status)}`,
+            `${sanitizeText(thread.path)} [${sanitizeText(thread.state)}] ${sanitizeText(thread.status)}${recoveryBadge(thread)}`,
         );
         const selected = await ctx.ui.select("Subagent threads", labels);
         if (selected === undefined) return;
@@ -516,7 +522,7 @@ export async function showThreads(
         throw new Error("/root is the current Pi thread, not a subagent.");
       const thread = controller.get(selectedPath);
       const children = controller.list().filter((child) => child.parent === selectedPath);
-      const title = `${sanitizeText(thread.path)} [${sanitizeText(thread.state)}] ${sanitizeText(thread.status)}`;
+      const title = `${sanitizeText(thread.path)} [${sanitizeText(thread.state)}] ${sanitizeText(thread.status)}${recoveryBadge(thread)}`;
       const action = await ctx.ui.select(title, [
         "View output",
         "View transcript",

@@ -15,6 +15,15 @@ export function threadActivity(
   return (active && summary) || fallback;
 }
 
+/**
+ * A compact badge showing how many lossless recovery attempts a thread needed,
+ * so a recovered or finally-failed agent does not look like a clean run.
+ */
+export function recoveryBadge(thread: ThreadView): string {
+  const attempts = thread.recovery?.attempts ?? 0;
+  return attempts > 0 ? ` ↻${attempts}` : "";
+}
+
 export interface StatusRow {
   path: string;
   prefix: string;

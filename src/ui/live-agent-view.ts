@@ -17,6 +17,7 @@ import type { ThreadService, TranscriptSnapshot, TranscriptToolState } from "../
 import { dialogText, type DialogHost } from "./dialog.ts";
 import { AGENT_PROGRESS_INTERVAL, agentProgressIcon, agentTypeLabel } from "./ui.ts";
 import type { LoaderStyle } from "../prefs/settings.ts";
+import { recoveryBadge } from "./thread-tree.ts";
 import { renderTranscriptTool } from "./transcript-tool.ts";
 
 /** Transcript detail level cycled by Ctrl+O: full → preview → compact. */
@@ -575,7 +576,7 @@ export class LiveAgentView {
           (this.error
             ? `Attachment error: ${this.error}`
             : thread
-              ? `${thread.task} · ${thread.status}`
+              ? `${thread.task} · ${thread.status}${recoveryBadge(thread)}`
               : "Live transcript · Enter to steer"),
       ),
     );

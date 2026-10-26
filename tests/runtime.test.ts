@@ -253,6 +253,9 @@ test("isolated real SDK driver without credentials", async (t) => {
       onEvent: (event) => events.push(event),
       shouldPause: () => pause,
       signal: new AbortController().signal,
+      // Recovery has its own suite; these tests assert the single-attempt paths.
+      recoveryBackoffMs: [],
+      streamRetryBackoffMs: [],
       ...overrides,
     });
     const modelOptions = (path: string, models: string[], overrides: Partial<DriverOptions> = {}) =>
@@ -1469,7 +1472,8 @@ test("isolated real SDK driver without credentials", async (t) => {
       await assert.rejects(driver.prompt("fail"), /terminal fake failure/);
       assert.equal(driver.output(), "");
       next = { ...answer(""), stopReason: "aborted" };
-      await assert.rejects(driver.prompt("cancel"), /aborted/);
+      // A non-local provider abort is an interruption, not a stop: say so, and do not retry.
+      await assert.rejects(driver.prompt("cancel"), /upstream interrupted the run/);
       await Promise.all([driver.abort(), driver.abort()]);
       driver.dispose();
       driver.dispose();
@@ -1482,6 +1486,7 @@ test("isolated real SDK driver without credentials", async (t) => {
             event.kind === "settings" ||
             event.kind === "usage" ||
             event.kind === "checkpoint" ||
+            event.kind === "recovery" ||
             event.text.length <= 1000,
         ),
       );

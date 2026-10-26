@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { ThreadManager, DEFAULT_SPAWN_TIMEOUT_MS } from "../src/orch/manager.ts";
 import { TranscriptChannel } from "../src/orch/transcript.ts";
+import { RunInterruptedError } from "../src/orch/interrupted.ts";
 import type {
   AgentDriver,
   AgentType,
@@ -880,6 +881,9 @@ test("budget overrun stops the child and emits a budget event with the spent tot
   assert.match(view.status, /Stopped/);
   assert.equal(view.inputTokens, 30);
   assert.equal(view.output, undefined, "budget stop deletes the output like a user stop");
+  assert.equal(view.settleReason, "budget", "a budget kill must not look like a caller stop");
+  const settled = events.find((event) => event.kind === "settled");
+  assert.equal(settled?.kind === "settled" ? settled.settleReason : undefined, "budget");
   await manager.shutdown();
 });
 
@@ -982,5 +986,128 @@ test("detach keeps the supervision timeout reporting through the detached path",
   assert.equal(timeout.recipient, "/root");
   assert.equal(drivers.get("/root/worker")!.runs.length, 1);
   drivers.get("/root/worker")!.finish();
+  await manager.shutdown();
+});
+
+test("a failed run keeps the driver's own diagnosis and the recovery trail", async () => {
+  const { manager, events } = fixture({
+    createDriver: async () =>
+      gated({
+        prompt: async () => {
+          throw new RunInterruptedError({
+            reason: "upstream-interrupted",
+            spentInput: 79_000,
+            budgetTokens: 1_000_000,
+            providerMessage: "socket hang up",
+            recovery: {
+              attempts: 3,
+              reasons: ["upstream-interrupted", "upstream-interrupted", "upstream-interrupted"],
+            },
+          });
+        },
+      }).driver,
+  });
+  await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "work",
+    wait: false,
+    timeout: 0,
+    budgetTokens: 1_000_000,
+  });
+  const view = await manager.wait("/root", "worker");
+  assert.equal(view.state, "failed");
+  assert.equal(view.settleReason, "upstream-interrupted");
+  assert.equal(view.recovery?.attempts, 3);
+  // The parent must be able to tell a dead subagent from a stop or a budget kill.
+  assert.match(view.error!, /failed after 3 lossless recovery attempts; 4 runs total/);
+  assert.match(view.error!, /socket hang up/);
+  assert.match(view.error!, /the budget was never the cause/);
+  assert.equal(view.status, "Failed; session retained");
+  const settled = events.find((event) => event.kind === "settled");
+  assert.equal(
+    settled?.kind === "settled" ? settled.settleReason : undefined,
+    "upstream-interrupted",
+  );
+  await manager.shutdown();
+});
+
+test("a plain driver error is reported as a model error without a recovery trail", async () => {
+  const { manager } = fixture({
+    createDriver: async () =>
+      gated({
+        prompt: async () => {
+          throw new Error("provider rejected the request");
+        },
+      }).driver,
+  });
+  await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "work",
+    wait: false,
+    timeout: 0,
+  });
+  const view = await manager.wait("/root", "worker");
+  assert.equal(view.state, "failed");
+  assert.equal(view.settleReason, "model-error");
+  assert.equal(view.recovery, undefined);
+  assert.match(view.error!, /provider rejected the request/);
+  await manager.shutdown();
+});
+
+test("recovery progress is reported without settling the parent", async () => {
+  const seen: string[] = [];
+  const { manager, events } = fixture({
+    createDriver: async (options) =>
+      gated({
+        prompt: async () => {
+          options.onEvent({
+            kind: "recovery",
+            phase: "retry",
+            attempts: 1,
+            maxAttempts: 3,
+            reasons: ["upstream-interrupted"],
+            delayMs: 30_000,
+            spentInput: 800,
+          });
+          await delay(20);
+          seen.push(manager.get("/root/worker").status);
+          options.onEvent({
+            kind: "recovery",
+            phase: "recovered",
+            attempts: 1,
+            maxAttempts: 3,
+            reasons: ["upstream-interrupted"],
+            spentInput: 800,
+          });
+          await delay(20);
+          seen.push(manager.get("/root/worker").status);
+        },
+      }).driver,
+  });
+  const spawn = manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "work",
+    wait: false,
+    timeout: 0,
+  });
+  await spawn;
+  const view = await manager.wait("/root", "worker");
+  assert.deepEqual(seen, [
+    "Upstream interruption; lossless recovery 1/3 in 30s",
+    "Recovered after 1 upstream interruption",
+  ]);
+  assert.equal(view.recovery?.attempts, 1);
+  assert.deepEqual(view.recovery?.reasons, ["upstream-interrupted"]);
+  assert.equal(view.state, "completed");
+  // Only the settlement wakes the parent; recovery is progress, not an outcome.
+  assert.deepEqual(
+    events
+      .filter((event) => event.kind !== "change" && event.kind !== "metrics")
+      .map((event) => event.kind),
+    ["settled"],
+  );
   await manager.shutdown();
 });

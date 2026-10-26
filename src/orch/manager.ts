@@ -15,6 +15,7 @@ import type {
   TranscriptSnapshot,
 } from "../types.ts";
 import { immutableTranscriptValue } from "./transcript.ts";
+import { formatRecoveryReport, isRunInterrupted } from "./interrupted.ts";
 import { canonicalPath, isDescendant, parentPath } from "./paths.ts";
 import { DEFAULT_MANAGER_SETTINGS, type ManagerSettings } from "../prefs/settings.ts";
 
@@ -694,6 +695,9 @@ export class ThreadManager {
     delete record.view.output;
     delete record.view.error;
     delete record.view.summary;
+    // Settle attribution and recovery spend belong to one run; a resume starts clean.
+    delete record.view.settleReason;
+    delete record.view.recovery;
     record.runId = (record.runId ?? 0) + 1;
     record.recentActivity = [];
     const epoch = this.epoch;
@@ -709,14 +713,25 @@ export class ThreadManager {
           record.view.state = "stopped";
           return;
         }
-        const task = driver.prompt(message);
+        // Publish the running status before the driver's first synchronous byte: a lossless
+        // retry reports its progress from inside the prompt call itself.
         record.view.state = "running";
         record.view.status = "Working";
         this.touch(record);
+        const task = driver.prompt(message);
         markStarted();
         await task;
         record.view.state = record.stopRequested
           ? "stopped"
+          : record.pauseRequested
+            ? "paused"
+            : "completed";
+        // A budget kill aborts the driver, so it lands here as a stop; keep the real attribution.
+        const budgetStop = record.view.settleReason === "budget";
+        record.view.settleReason = record.stopRequested
+          ? budgetStop
+            ? "budget"
+            : "stopped"
           : record.pauseRequested
             ? "paused"
             : "completed";
@@ -726,9 +741,29 @@ export class ThreadManager {
         } else if (record.view.state === "stopped")
           record.view.status = "Stopped; session retained";
       } catch (error) {
+        const budgetStop = record.view.settleReason === "budget";
         record.view.state = record.stopRequested ? "stopped" : "failed";
-        record.view.error = errorText(error);
-        record.view.status = record.stopRequested ? "Stopped; session retained" : record.view.error;
+        if (record.stopRequested) record.view.settleReason = budgetStop ? "budget" : "stopped";
+        else if (isRunInterrupted(error)) {
+          // The driver already knows why it died; never re-derive it from token counts.
+          record.view.settleReason = error.reason;
+          record.view.recovery = {
+            attempts: error.recovery.attempts,
+            reasons: [...error.recovery.reasons],
+          };
+          record.view.error = formatRecoveryReport(error, {
+            spentInput: error.spentInput,
+            ...(record.view.budgetTokens !== undefined
+              ? { budgetTokens: record.view.budgetTokens }
+              : {}),
+          });
+        } else {
+          record.view.settleReason = "model-error";
+          record.view.error = errorText(error);
+        }
+        record.view.status = record.stopRequested
+          ? "Stopped; session retained"
+          : "Failed; session retained";
       } finally {
         this.clearTimeout(record);
         this.freezeElapsed(record);
@@ -745,6 +780,7 @@ export class ThreadManager {
             thread: this.view(record),
             recipient: record.view.parent ?? record.view.owner,
             async: record.async === true,
+            ...(record.view.settleReason ? { settleReason: record.view.settleReason } : {}),
           });
       }
     });
@@ -790,6 +826,20 @@ export class ThreadManager {
                 return;
               }
               if (event.kind === "checkpoint") {
+                this.touch(record);
+                return;
+              }
+              if (event.kind === "recovery") {
+                // Lossless recovery is progress, not a settle: record it for the final report
+                // and keep the thread running so the parent is not woken mid-recovery.
+                record.view.recovery = { attempts: event.attempts, reasons: [...event.reasons] };
+                if (active(record.view) && !record.pauseRequested) {
+                  record.view.status =
+                    event.phase === "recovered"
+                      ? `Recovered after ${event.attempts} upstream interruption${event.attempts === 1 ? "" : "s"}`
+                      : `Upstream interruption; lossless recovery ${event.attempts}/${event.maxAttempts} in ${Math.round((event.delayMs ?? 0) / 1000)}s`;
+                  this.recordActivity(record, record.view.status);
+                }
                 this.touch(record);
                 return;
               }
@@ -1015,6 +1065,8 @@ export class ThreadManager {
   private async exhaustBudget(record: Record): Promise<void> {
     if (record.stopRequested) return;
     record.stopRequested = true;
+    // Attribution must survive the abort: the driver only sees "run aborted".
+    record.view.settleReason = "budget";
     record.startup.abort();
     this.clearTimeout(record);
     try {
