@@ -103,7 +103,7 @@ export function agentTools(
     ),
     make(
       "agent_spawn",
-      "生成命名子代理,子代理只收自己的 task 与类型 prompt。传上下文:把自含简报(决策/路径/文件位置)写进 task,或指向文件。默认前台等待;wait:false 转后台,完成/失败/被停时收到唤醒消息,勿轮询。timeout 到点仅发状态事件(状态/耗时/tokens/最近输出),绝不停止子代理,续期用 agent_steer。上游断流会被自动无损重试(最多 3 次、退避 10/30/90s,不改任务、不丢上下文),过程不唤醒你,只有终态才回报,所以一次失败报告就是真的没救了;失败原因会写明是 upstream interruption 还是 model error,并附已耗 token。budgetTokens 超限即停子代理并发事件,session 仍可经 agent_output 读取。并行时先以 wait:false 生成全部独立兄弟,再 agent_wait;有委派工具的子代理照做。可用类型用 agent_types 查询。",
+      "生成命名子代理,子代理只收自己的 task 与类型 prompt。传上下文:把自含简报(决策/路径/文件位置)写进 task,或指向文件。默认前台等待;wait:false 转后台,完成/失败/被停时收到唤醒消息,勿轮询。timeout 到点仅发状态事件(状态/耗时/最近输出),绝不停止子代理,续期用 agent_steer。上游断流会被自动无损重试(最多 3 次、退避 10/30/90s,不改任务、不丢上下文),过程不唤醒你,只有终态才回报,所以一次失败报告就是真的没救了;失败原因会写明是 upstream interruption 还是 model error。并行时先以 wait:false 生成全部独立兄弟,再 agent_wait;有委派工具的子代理照做。可用类型用 agent_types 查询。",
       Type.Object({
         path: Type.String({
           description:
@@ -118,10 +118,6 @@ export function agentTools(
           description:
             "报告型监督计时器:到点只发事件,绝不停止子代理。必填,整数秒 0–300,0=落 60s 默认。",
         }),
-        budgetTokens: Type.Integer({
-          minimum: 0,
-          description: "必填,本线程累计输入 token 上限,0=2,000,000 默认。",
-        }),
       }),
       async (params, signal) => {
         const view = await threads().spawn(
@@ -132,7 +128,7 @@ export function agentTools(
           signal,
         );
         // Detached mid-flight by queued user input: end the blocking call with the notice;
-        // settlement/budget/timeout events still arrive via the detached path.
+        // settlement/timeout events still arrive via the detached path.
         if (view.detachedToBackground)
           return {
             content: [

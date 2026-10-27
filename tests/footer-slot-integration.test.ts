@@ -90,7 +90,6 @@ test(
           task: "First run",
           wait: true,
             timeout: 0,
-            budgetTokens: 0,
           });
         await tool(session, "agent_wait", { path: "worker" });
         assert.equal(first.state, "completed");
@@ -169,7 +168,6 @@ test(
           task: "First run",
           wait: true,
             timeout: 0,
-            budgetTokens: 0,
           });
         await tool(session, "agent_wait", { path: "worker" });
         assert.equal(lastValue(updates), "💵 $0.5000");
@@ -216,7 +214,6 @@ test(
           task: "First run",
           wait: true,
             timeout: 0,
-            budgetTokens: 0,
           });
         await tool(session, "agent_wait", { path: "worker" });
         const value = lastValue(updates);
@@ -273,7 +270,6 @@ test(
           task: "First run",
           wait: true,
             timeout: 0,
-            budgetTokens: 0,
           });
         await tool(session, "agent_wait", { path: "worker" });
         assert.equal(lastValue(updates), "💵 $0.5000");
@@ -310,7 +306,7 @@ test("default status key publishes before startup completes and Pi status includ
     await reloadSettings(session);
     assert.equal(statuses.get(WIDGET_ID), "💵 $0.0000");
     statuses.clear(); // Startup must republish even if a consumer lost the initial update.
-    await tool(session, "agent_spawn", { path: "worker", type: "worker", task: "Cost", wait: true, timeout: 0, budgetTokens: 0 });
+    await tool(session, "agent_spawn", { path: "worker", type: "worker", task: "Cost", wait: true, timeout: 0 });
     await tool(session, "agent_wait", { path: "worker" });
     assert.equal(statuses.get(WIDGET_ID), "💵 $0.5000");
     await writeFile(path.join(directory, "keel-crew", "settings.json"), JSON.stringify({ costDisplay: "pi-status", costValue: "total" }));

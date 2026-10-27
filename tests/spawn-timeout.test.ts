@@ -155,7 +155,7 @@ test("settled events flag detached spawns; outstandingAsync tracks them", async 
   await manager.shutdown();
 });
 
-test("tool schemas expose timeout/budgetTokens and steer timeout with report-only bounds", () => {
+test("tool schemas expose a required report-only timeout and steer timeout with report-only bounds", () => {
   const tools = agentTools(
     () => ({}) as any,
     "/root",
@@ -171,10 +171,9 @@ test("tool schemas expose timeout/budgetTokens and steer timeout with report-onl
     "type",
     "task",
     "timeout",
-    "budgetTokens",
   ]);
-  const budget = (spawn.parameters as any).properties.budgetTokens;
-  assert.equal(budget.minimum, 0);
+  // Budgets are gone: supervision must not silently cap what a child may spend.
+  assert.equal((spawn.parameters as any).properties.budgetTokens, undefined);
   assert.equal(
     tools.find((t) => t.name === "agent_extend_timeout"),
     undefined,
@@ -207,7 +206,6 @@ test("legacy timeoutMs param is still accepted at the execute layer and normaliz
       task: "task",
       wait: false,
       timeoutMs: 30_000,
-      budgetTokens: 0,
     });
     await flush();
     t.mock.timers.tick(29_999);

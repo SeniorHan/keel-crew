@@ -4,6 +4,18 @@ Generated from version tags and merged GitHub pull requests. Do not edit this fi
 
 ## 0.x — Pre-1.0 releases
 
+### [v0.35.0] — Remove the token budget; keep spend out of the parent's context (local fork, 2026-10-26)
+
+> Budgets were almost always set too low, and the only way out of a budget stop was to raise the number and start over — which meant throwing the child's context away. The cap also never reset between runs, so a thread that had already spent its budget died again on the first usage event after `agent_steer`, with no API to change it. Budgets are gone; supervision is timeout-only.
+
+#### Removed
+- The `budgetTokens` parameter of `agent_spawn`, `DEFAULT_BUDGET_TOKENS`, `assertBudgetTokens`, `resolveBudgetTokens`, `ThreadView.budgetTokens`, `SavedThreadView.budgetTokens`, `enforceBudget`, `exhaustBudget`, the `budget` thread event, and the `budget` settle reason.
+- Token counts from everything the parent model reads: `timeout` wake messages no longer print `tokens: N in / M out`, and failure reports no longer print the tokens spent. A spend figure in the parent's context makes it frugal instead of effective; the numbers stay in the UI and in an explicit `agent_status` call.
+
+#### Changed
+- A subagent is only stopped by a caller stop, a pause, a shutdown, or its own completion. `timeout` remains report-only, exactly as before.
+- `agent_spawn`'s description documents the report-only timeout and the invisible-to-the-parent token accounting.
+
 ### [v0.34.0] — Lossless recovery from upstream interruptions (local fork, 2026-10-26)
 
 > A dead subagent used to be indistinguishable from a budget kill or a caller stop, and the parent had to re-derive the cause from token counts. Now the driver says what happened, and a dropped stream is repaired instead of reported.

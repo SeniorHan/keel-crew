@@ -146,10 +146,10 @@ A dropped provider stream is an accident, not a verdict. Two layers rebuild the 
 | Request (`src/orch/stream-retry.ts`) | The stream died **before any content** arrived | The `start` event is withheld until real content shows up, so a dead request leaves nothing behind. The request is retried in place; the agent loop never sees the failure. |
 | Turn (`src/orch/runtime.ts`) | The stream died **after partial output** | The failed assistant message and that turn's tool results are hidden with `sessionManager.appendContextEdit(id, null)`, `session.refreshContext()` reprojects agent state, and `agent.continue()` reruns the turn from the context it had before it started. The transcript keeps both the abandoned turn and the edit that hid it. |
 
-- Both layers back off 10 s / 30 s / 90 s (three attempts) and stop immediately on a user stop, a pause, a shutdown, or a budget kill.
+- Both layers back off 10 s / 30 s / 90 s (three attempts) and stop immediately on a user stop, a pause, or a shutdown.
 - Only transient failures are retried: `aborted` streams, rate limits, 5xx, network errors. Quota/billing errors and context overflows are terminal on the first try.
 - Recovery is **progress, not an outcome**: it emits a `recovery` driver event that updates the thread status (`Upstream interruption; lossless recovery 1/3 in 30s`, then `Recovered after 1 upstream interruption`) and never wakes the parent.
-- The parent is woken once, at the end. A failure report names what actually happened: `upstream-interrupted` or `model-error`, the provider's own words, every interruption attempt, and the tokens actually spent — with an explicit note when the budget was never the cause. A budget kill keeps its own `budget` attribution instead of looking like a caller stop.
+- The parent is woken once, at the end. A failure report names what actually happened: `upstream-interrupted` or `model-error`, the provider's own words, and every interruption attempt. Token counts and costs are deliberately kept out of everything the parent model reads — a spend figure in its context nudges it toward frugality instead of finishing the task — and stay available to the human in the UI and to the parent through an explicit `agent_status` call.
 - Reverting a turn discards that turn's partial output. Agents that must not lose work stream it to a file as they go.
 
 ## Settings, cancellation, and persistence

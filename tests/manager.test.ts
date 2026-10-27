@@ -840,90 +840,6 @@ test("shutdown awaits asynchronous driver disposal", async () => {
   assert.equal(finished, true);
 });
 
-test("budget overrun stops the child and emits a budget event with the spent total", async () => {
-  let released = false;
-  const { manager, events } = fixture({
-    createDriver: async (options) =>
-      gated({
-        prompt: async () => {
-          options.onEvent({ kind: "usage", inputTokens: 30, outputTokens: 1 });
-          await new Promise<void>((resolve) => {
-            setImmediate(() => {
-              released = true;
-              resolve();
-            });
-          });
-        },
-      }).driver,
-  });
-  await manager.spawn("/root", {
-    path: "worker",
-    type: "worker",
-    task: "work",
-    wait: false,
-    timeout: 0,
-    budgetTokens: 20,
-  });
-  await tick();
-  const budget = events.find((event) => event.kind === "budget") as Extract<
-    (typeof events)[number],
-    { kind: "budget" }
-  >;
-  assert.ok(budget, "budget event emitted while the prompt is in flight");
-  assert.equal(budget.thread.path, "/root/worker");
-  assert.equal(budget.recipient, "/root");
-  assert.equal(budget.budgetTokens, 20);
-  assert.equal(budget.spentTokens, 30);
-  assert.equal(typeof budget.recentOutput, "string");
-  const view = await manager.wait("/root", "worker");
-  assert.ok(released, "budget enforcement aborted the hung prompt");
-  assert.equal(view.state, "stopped");
-  assert.match(view.status, /Stopped/);
-  assert.equal(view.inputTokens, 30);
-  assert.equal(view.output, undefined, "budget stop deletes the output like a user stop");
-  assert.equal(view.settleReason, "budget", "a budget kill must not look like a caller stop");
-  const settled = events.find((event) => event.kind === "settled");
-  assert.equal(settled?.kind === "settled" ? settled.settleReason : undefined, "budget");
-  await manager.shutdown();
-});
-
-test("budgetTokens 0 resolves to the 2M default and tiny overruns do not trigger", async () => {
-  const { manager, drivers } = fixture();
-  await manager.spawn("/root", {
-    path: "worker",
-    type: "worker",
-    task: "work",
-    wait: false,
-    timeout: 0,
-    budgetTokens: 0,
-  });
-  await tick();
-  const record = manager.saved()[0]!;
-  assert.equal(record.view.budgetTokens, 2_000_000);
-  assert.equal(
-    (drivers.get("/root/worker")! as unknown as { options?: unknown }).options === undefined,
-    false,
-  );
-  await manager.shutdown();
-});
-
-test("negative and non-integer budgets are rejected", async () => {
-  const { manager } = fixture();
-  for (const bad of [-1, 1.5, Number.NaN])
-    await assert.rejects(
-      manager.spawn("/root", {
-        path: `bad${bad}`,
-        type: "worker",
-        task: "work",
-        wait: false,
-        timeout: 0,
-        budgetTokens: bad,
-      }),
-      /budgetTokens must be a non-negative integer/,
-    );
-  await manager.shutdown();
-});
-
 test("detachForeground flips an in-flight foreground spawn onto the detached path", async () => {
   const { manager, drivers, events } = fixture();
   const waiting = manager.spawn("/root", { path: "worker", type: "worker", task: "task" });
@@ -975,7 +891,6 @@ test("detach keeps the supervision timeout reporting through the detached path",
     type: "worker",
     task: "task",
     timeout: 0,
-    budgetTokens: 0,
   });
   await tick();
   manager.detachForegroundIfRunning();
@@ -997,7 +912,6 @@ test("a failed run keeps the driver's own diagnosis and the recovery trail", asy
           throw new RunInterruptedError({
             reason: "upstream-interrupted",
             spentInput: 79_000,
-            budgetTokens: 1_000_000,
             providerMessage: "socket hang up",
             recovery: {
               attempts: 3,
@@ -1013,16 +927,16 @@ test("a failed run keeps the driver's own diagnosis and the recovery trail", asy
     task: "work",
     wait: false,
     timeout: 0,
-    budgetTokens: 1_000_000,
   });
   const view = await manager.wait("/root", "worker");
   assert.equal(view.state, "failed");
   assert.equal(view.settleReason, "upstream-interrupted");
   assert.equal(view.recovery?.attempts, 3);
-  // The parent must be able to tell a dead subagent from a stop or a budget kill.
+  // The parent must be able to tell a dead subagent from a stop or a pause.
   assert.match(view.error!, /failed after 3 lossless recovery attempts; 4 runs total/);
   assert.match(view.error!, /socket hang up/);
-  assert.match(view.error!, /the budget was never the cause/);
+  // Spend figures stay out of the parent-facing text: they make recipients frugal, not effective.
+  assert.doesNotMatch(view.error!, /\btokens?\b|budget|\$\d/i);
   assert.equal(view.status, "Failed; session retained");
   const settled = events.find((event) => event.kind === "settled");
   assert.equal(

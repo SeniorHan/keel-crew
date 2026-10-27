@@ -44,10 +44,10 @@ export interface AgentType {
 export type ThreadState = "starting" | "running" | "paused" | "completed" | "failed" | "stopped";
 /**
  * Why the most recent run ended. `failed` alone cannot distinguish an upstream drop from a
- * budget stop, which previously caused recipients to misdiagnose interruptions as exhaustion.
+ * model error, which previously caused recipients to misdiagnose interruptions.
  */
 export type SettleReason =
-  "completed" | "upstream-interrupted" | "model-error" | "budget" | "stopped" | "paused";
+  "completed" | "upstream-interrupted" | "model-error" | "stopped" | "paused";
 /** Lossless recovery bookkeeping for one run (live only; a new run starts from zero). */
 export interface RecoveryRecord {
   /** Recovery attempts used by this run (0 when the first attempt succeeded). */
@@ -95,8 +95,6 @@ export interface ThreadView {
   outputTokens?: number;
   /** Cumulative estimated USD cost for this agent's own messages. */
   costUsd?: number;
-  /** Cumulative input-token budget for this thread; exceeding it stops the thread. */
-  budgetTokens?: number;
   /** Stable lifetime identity for cost accounting, retained across resumes/reloads. */
   costId?: string;
   /** Transient: a foreground spawn flipped to detached by queued user input; never persisted. */
@@ -218,7 +216,6 @@ export interface SavedThreadView {
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
-  budgetTokens?: number;
   costId?: string;
 }
 export interface SavedThread {
@@ -242,7 +239,6 @@ export interface ThreadService {
       wait?: boolean;
       /** Report-only supervision timeout in seconds; 0 = 60s default. Never aborts the child. */
       timeout?: number;
-      budgetTokens?: number;
     },
     signal?: AbortSignal,
   ): Promise<ThreadView>;
@@ -274,15 +270,6 @@ export type ThreadEvent =
       recipient: string;
       /** Effective supervision timeout in seconds (60 for the default). */
       timeout: number;
-      recentOutput: string;
-    }
-  /** The child exceeded its input-token budget and was stopped; its session is retained. */
-  | {
-      kind: "budget";
-      thread: ThreadView;
-      recipient: string;
-      budgetTokens: number;
-      spentTokens: number;
       recentOutput: string;
     };
 /** Recent live activity of one running agent, offered to the optional housekeeping summarizer. */

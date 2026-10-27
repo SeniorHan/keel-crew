@@ -1,7 +1,7 @@
 # keel-crew
 
 > Forked from the upstream project by championswimmer (history in CHANGELOG.md)
-> with fresh-only spawns, required supervision params and budget enforcement.
+> with fresh-only spawns and required supervision params.
 > Maintained at [SeniorHan/keel-crew](https://github.com/SeniorHan/keel-crew).
 [![CI](https://github.com/SeniorHan/keel-crew/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/SeniorHan/keel-crew/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/SeniorHan/keel-crew/branch/main/graph/badge.svg)](https://codecov.io/gh/SeniorHan/keel-crew)

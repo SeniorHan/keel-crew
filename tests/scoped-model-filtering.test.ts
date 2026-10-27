@@ -49,7 +49,7 @@ test(
         // Resumed agents also wake the root; model-selection assertions concern child calls only.
         const childRequests = () => requests.filter((request) => request.path !== null);
         const spawn = (path: string, type = "ordered") =>
-          tool<ThreadView>(session, "agent_spawn", { path, type, task: "Work", timeout: 0, budgetTokens: 0 });
+          tool<ThreadView>(session, "agent_spawn", { path, type, task: "Work", timeout: 0 });
         assert.equal((await spawn("first")).state, "completed");
         assert.equal(
           childRequests().at(-1)?.modelId,
