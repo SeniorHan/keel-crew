@@ -472,13 +472,9 @@ export default function piSubagent(pi: ExtensionAPI): void {
     const message =
       event.kind === "update"
         ? `Progress from ${thread.path}: ${event.message}`
-        : event.kind === "budget"
-          ? `Agent ${thread.path} exhausted its input-token budget (${event.spentTokens} > ${event.budgetTokens}) and was stopped; its session is retained (read it with agent_output).\n` +
-            `Recent output:\n${event.recentOutput || "(none yet)"}`
-          : event.kind === "timeout"
+        : event.kind === "timeout"
             ? `Agent ${thread.path} hit its ${event.timeout}s spawn timeout and is STILL RUNNING (not stopped). ` +
-              `State: ${thread.state}; status: ${thread.status}; elapsed: ${fmtMs(elapsed)}; ` +
-              `tokens: ${thread.inputTokens ?? 0} in / ${thread.outputTokens ?? 0} out.\n` +
+              `State: ${thread.state}; status: ${thread.status}; elapsed: ${fmtMs(elapsed)}.\n` +
               `Recent output:\n${event.recentOutput || "(none yet)"}\n` +
               "Decide: agent_steer with timeout only (no message) to be notified again later without disturbing it, agent_wait for it, agent_steer to redirect, agent_stop to cancel, or let it continue."
             : thread.state === "completed"
@@ -506,9 +502,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
           // Recap mode defers the turn until every outstanding async agent has reported.
           trigger:
             !suspendingSummaries &&
-            (event.kind === "timeout" ||
-              event.kind === "budget" ||
-              (event.kind === "settled" && event.async && !recap)),
+            (event.kind === "timeout" || (event.kind === "settled" && event.async && !recap)),
           details: {
             mailboxId: randomUUID(),
             path: thread.path,
@@ -781,7 +775,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
     try {
       await current
         .scope("/root")
-        .spawn({ path, type: typeName, task, wait: false, timeout: 0, budgetTokens: 0 });
+        .spawn({ path, type: typeName, task, wait: false, timeout: 0 });
       persist();
       refreshWidget(ctx);
       ctx.ui.notify(`Started ${typeName} (fresh context) at ${path}`, "info");

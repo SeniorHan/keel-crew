@@ -58,7 +58,6 @@ for (const earlyChildren of [2, 1, 0]) {
           content: [0, 1].map((i) => ({ type: "toolCall" as const, id: `spawn-${i}`, name: "agent_spawn", arguments: {
             path: `worker-${i}`, type: "worker", task: `Run parallel task ${i}`, wait: false,
             timeout: 0,
-            budgetTokens: 0,
           } })),
         };
         if (rootCalls === 2) return rootResult;
@@ -194,7 +193,6 @@ test("off keeps running work but suppresses its notifications until re-enabled",
         content: [{ type: "toolCall", id: "background", name: "agent_spawn", arguments: {
           path: "background", type: "worker", task: "Finish retained work", wait: false,
             timeout: 0,
-            budgetTokens: 0,
           } }],
       };
       return answer("Assigned work");
@@ -233,7 +231,6 @@ test("streaming notifications stay in the mailbox, do not duplicate on reload, a
         content: [{ type: "toolCall", id: "streaming", name: "agent_spawn", arguments: {
           path: "background", type: "worker", task: "Finish during root streaming", wait: false,
             timeout: 0,
-            budgetTokens: 0,
           } }],
       };
       return rootResult;
@@ -283,7 +280,6 @@ test("enabled streaming mailbox is delivered once at agent settlement and wakes 
         content: [{ type: "toolCall", id: "settled", name: "agent_spawn", arguments: {
           path: "background", type: "worker", task: "Finish while root works", wait: false,
             timeout: 0,
-            budgetTokens: 0,
           } }],
       };
       return rootResult;
@@ -323,7 +319,6 @@ test("orchestration restricts /root's prompt, not the child worker's prompt", { 
         content: [{ type: "toolCall", id: "delegate", name: "agent_spawn", arguments: {
           path: "task", type: "worker", task: "Execute a small sequential task", wait: true,
             timeout: 0,
-            budgetTokens: 0,
           } }],
       };
       return answer("Synthesized worker result");

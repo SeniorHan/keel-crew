@@ -90,7 +90,6 @@ test(
           type: "offline",
           task: "Pause until more input",
             timeout: 0,
-            budgetTokens: 0,
           });
         assert.equal(paused.state, "paused");
         assert.equal(paused.output, undefined, "pause must not hand back an answer");
@@ -307,7 +306,6 @@ test(
           type: "offline",
           task: "Draft a nested follow-up",
             timeout: 0,
-            budgetTokens: 0,
           });
         assert.equal(spawned.state, "completed");
         assert.equal(spawned.output, CHILD_OUTPUT);
@@ -419,7 +417,6 @@ test(
           type: "offline",
           task: "Produce the first answer",
             timeout: 0,
-            budgetTokens: 0,
           });
         assert.equal(first.state, "completed");
         assert.equal(first.output, "answer A");

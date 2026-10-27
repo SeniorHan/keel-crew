@@ -2,17 +2,19 @@ import type { RecoveryRecord, SettleReason } from "../types.ts";
 
 /**
  * Why a run ended. This is deliberately richer than `ThreadState`: a thread that lost its
- * upstream connection and one that ran out of input-token budget both end up `failed`, but
- * the recipient must be able to tell them apart instead of "spent too much".
+ * upstream connection and one whose model call failed both end up `failed`, but the recipient
+ * must be able to tell them apart from the run's own evidence, never from token counts.
  */
 export type InterruptReason = Extract<SettleReason, "upstream-interrupted" | "model-error">;
 
 export interface RunInterruptedOptions {
   reason: InterruptReason;
-  /** Cumulative own-assistant input tokens spent by this driver instance. */
+  /**
+   * Cumulative own-assistant input tokens spent by this driver instance. Kept for diagnostics
+   * and never rendered into anything the parent model reads: a token figure in the parent's
+   * context nudges it toward frugality instead of finishing the task.
+   */
   spentInput: number;
-  /** Budget that was configured for the thread, if any. */
-  budgetTokens?: number;
   /** Raw provider text, when the SDK reported one. */
   providerMessage?: string;
   /** Lossless recovery attempts that already ran before this failure surfaced. */
@@ -21,14 +23,13 @@ export interface RunInterruptedOptions {
 
 /**
  * Thrown by the driver when the run died from an upstream/provider failure rather than from
- * our own stop, pause, or budget. The manager turns this into a faithful settle reason.
+ * our own stop or pause. The manager turns this into a faithful settle reason.
  */
 export class RunInterruptedError extends Error {
   /** Marker used instead of `instanceof` so callers survive module duplication. */
   readonly runInterrupted = true;
   readonly reason: InterruptReason;
   readonly spentInput: number;
-  readonly budgetTokens?: number;
   readonly providerMessage?: string;
   readonly recovery: RecoveryRecord;
 
@@ -37,7 +38,6 @@ export class RunInterruptedError extends Error {
     this.name = "RunInterruptedError";
     this.reason = options.reason;
     this.spentInput = options.spentInput;
-    this.budgetTokens = options.budgetTokens;
     this.providerMessage = options.providerMessage;
     this.recovery = options.recovery;
   }
@@ -53,16 +53,6 @@ export function isRunInterrupted(error: unknown): error is RunInterruptedError {
 }
 
 function describeInterruption(options: RunInterruptedOptions): string {
-  const budget = options.budgetTokens;
-  const share =
-    budget && budget > 0 ? ` (${Math.round((options.spentInput / budget) * 100)}% of budget)` : "";
-  const spend = `spent ${options.spentInput.toLocaleString("en-US")} input tokens${
-    budget ? ` of ${budget.toLocaleString("en-US")}` : ""
-  }${share}`;
-  const budgetVerdict =
-    budget && budget > 0 && options.spentInput < budget * 0.5
-      ? " — this was NOT a budget stop"
-      : "";
   const cause =
     options.reason === "upstream-interrupted"
       ? "upstream interrupted the run (provider aborted or dropped the stream)"
@@ -73,25 +63,14 @@ function describeInterruption(options: RunInterruptedOptions): string {
           options.recovery.attempts === 1 ? "" : "s"
         } (${options.recovery.attempts + 1} runs total)`
       : "";
-  return `Subagent run failed${attempts}: ${cause}; ${spend}${budgetVerdict}`;
+  return `Subagent run failed${attempts}: ${cause}`;
 }
 
 /** One line per attempt, for the failure report handed back to the recipient. */
 export function formatRecoveryReport(
   failure: Pick<RunInterruptedError, "reason" | "recovery" | "providerMessage">,
-  detail: { spentInput: number; budgetTokens?: number },
 ): string {
   const { recovery } = failure;
-  const budget = detail.budgetTokens;
-  const spent =
-    budget && budget > 0
-      ? `spent ${detail.spentInput.toLocaleString("en-US")} of ${budget.toLocaleString("en-US")} input tokens`
-      : `spent ${detail.spentInput.toLocaleString("en-US")} input tokens`;
-  // A failure that burned well under its budget must never read as an exhaustion report.
-  const budgetVerdict =
-    budget && budget > 0 && detail.spentInput < budget * 0.5
-      ? " — the budget was never the cause"
-      : "";
   const cause =
     failure.reason === "upstream-interrupted"
       ? "upstream interrupted the run (provider aborted or dropped the stream)"
@@ -107,6 +86,5 @@ export function formatRecoveryReport(
       : [`failed: ${cause}.`];
   // Keep the provider's own words: they are the only evidence the recipient can act on.
   if (failure.providerMessage) lines.push(`  provider said: ${failure.providerMessage}`);
-  lines.push(`  ${spent}${budgetVerdict}.`);
   return lines.join("\n");
 }

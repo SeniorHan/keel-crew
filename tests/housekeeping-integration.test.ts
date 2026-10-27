@@ -83,7 +83,6 @@ async function scenario(
             task: "Read the project notes",
             wait: false,
             timeout: 0,
-            budgetTokens: 0,
           });
         return answer("Delegated");
       },
@@ -255,7 +254,6 @@ test(
               task: "Read the project notes",
               wait: false,
               timeout: 0,
-              budgetTokens: 0,
           });
           return answer("Delegated");
         },

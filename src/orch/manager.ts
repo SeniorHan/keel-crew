@@ -60,8 +60,6 @@ export const MAX_SPAWN_TIMEOUT_S = 300;
 /** Report-only supervision timer default, in ms (timeout = 0 resolves to this). */
 export const DEFAULT_SPAWN_TIMEOUT_MS = 60_000;
 /** Spawn timeout = 0 resolves to this report-only supervision default. */
-/** Spawn budgetTokens = 0 resolves to this cumulative input-token budget. */
-export const DEFAULT_BUDGET_TOKENS = 2_000_000;
 function assertSpawnTimeout(timeout: number): void {
   if (!Number.isInteger(timeout) || timeout < 0 || timeout > MAX_SPAWN_TIMEOUT_S)
     throw new Error(
@@ -70,15 +68,6 @@ function assertSpawnTimeout(timeout: number): void {
 }
 function timeoutToMs(timeout: number): number {
   return timeout === 0 ? DEFAULT_SPAWN_TIMEOUT_MS : timeout * 1000;
-}
-function assertBudgetTokens(budgetTokens: number): void {
-  if (!Number.isInteger(budgetTokens) || budgetTokens < 0)
-    throw new Error(
-      "budgetTokens must be a non-negative integer; 0 uses the 2,000,000-token default",
-    );
-}
-function resolveBudgetTokens(budgetTokens: number): number {
-  return budgetTokens === 0 ? DEFAULT_BUDGET_TOKENS : budgetTokens;
 }
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -237,7 +226,6 @@ export class ThreadManager {
         outputTokens: record.view.outputTokens ?? 0,
         costUsd: record.view.costUsd,
         costId: record.view.costId,
-        budgetTokens: record.view.budgetTokens,
       };
       const sessionLeafId = this.sessionLeafId(record);
       if (sessionLeafId !== undefined) view.sessionLeafId = sessionLeafId;
@@ -308,17 +296,14 @@ export class ThreadManager {
       task: string;
       wait?: boolean;
       timeout?: number;
-      budgetTokens?: number;
     },
     signal?: AbortSignal,
   ): Promise<ThreadView> {
     this.assertLive();
-    // Tool callers must pass both explicitly (required in the agent_spawn schema); direct
-    // API callers get the same safe defaults as an explicit 0: always supervised, always capped.
+    // Tool callers must pass timeout explicitly (required in the agent_spawn schema); direct
+    // API callers get the same safe default as an explicit 0: always supervised.
     if (args.timeout !== undefined) assertSpawnTimeout(args.timeout);
     const timeoutMs = timeoutToMs(args.timeout ?? 0);
-    if (args.budgetTokens !== undefined) assertBudgetTokens(args.budgetTokens);
-    const budgetTokens = resolveBudgetTokens(args.budgetTokens ?? 0);
     caller = canonicalPath(caller);
     if (
       caller !== "/root" &&
@@ -369,7 +354,6 @@ export class ThreadManager {
         elapsedMs: 0,
         inputTokens: 0,
         outputTokens: 0,
-        budgetTokens,
       },
       definition: type,
       inherited: [],
@@ -726,12 +710,8 @@ export class ThreadManager {
           : record.pauseRequested
             ? "paused"
             : "completed";
-        // A budget kill aborts the driver, so it lands here as a stop; keep the real attribution.
-        const budgetStop = record.view.settleReason === "budget";
         record.view.settleReason = record.stopRequested
-          ? budgetStop
-            ? "budget"
-            : "stopped"
+          ? "stopped"
           : record.pauseRequested
             ? "paused"
             : "completed";
@@ -741,9 +721,8 @@ export class ThreadManager {
         } else if (record.view.state === "stopped")
           record.view.status = "Stopped; session retained";
       } catch (error) {
-        const budgetStop = record.view.settleReason === "budget";
         record.view.state = record.stopRequested ? "stopped" : "failed";
-        if (record.stopRequested) record.view.settleReason = budgetStop ? "budget" : "stopped";
+        if (record.stopRequested) record.view.settleReason = "stopped";
         else if (isRunInterrupted(error)) {
           // The driver already knows why it died; never re-derive it from token counts.
           record.view.settleReason = error.reason;
@@ -751,12 +730,7 @@ export class ThreadManager {
             attempts: error.recovery.attempts,
             reasons: [...error.recovery.reasons],
           };
-          record.view.error = formatRecoveryReport(error, {
-            spentInput: error.spentInput,
-            ...(record.view.budgetTokens !== undefined
-              ? { budgetTokens: record.view.budgetTokens }
-              : {}),
-          });
+          record.view.error = formatRecoveryReport(error);
         } else {
           record.view.settleReason = "model-error";
           record.view.error = errorText(error);
@@ -1019,7 +993,6 @@ export class ThreadManager {
       record.liveOutputTokens = output;
       record.liveCostUsd = costUsd;
       if (!this.disposed) this.emit({ kind: "metrics", thread: this.view(record) });
-      this.enforceBudget(record);
       return;
     }
     record.view.inputTokens =
@@ -1036,51 +1009,6 @@ export class ThreadManager {
     record.liveOutputTokens = 0;
     record.liveCostUsd = undefined;
     this.touch(record);
-    this.enforceBudget(record);
-  }
-  /** Stop a thread once its cumulative input tokens exceed its budget; the parent gets a report. */
-  private enforceBudget(record: Record): void {
-    const budget = record.view.budgetTokens;
-    if (!budget || budget <= 0 || record.stopRequested || !active(record.view)) return;
-    const spent = (record.view.inputTokens ?? 0) + (record.liveInputTokens ?? 0);
-    if (spent <= budget) return;
-    const event = {
-      kind: "budget" as const,
-      thread: this.view(record),
-      recipient: record.view.parent ?? record.view.owner,
-      budgetTokens: budget,
-      spentTokens: spent,
-      recentOutput: this.recentOutput(record),
-    };
-    this.emit(event);
-    void this.exhaustBudget(record).catch((error) => {
-      try {
-        if (this.options.onEventError) this.options.onEventError(error, event);
-        else console.warn(`Budget stop failed: ${errorText(error)}`);
-      } catch {
-        /* A failing diagnostic sink must not turn enforcement into a crash. */
-      }
-    });
-  }
-  private async exhaustBudget(record: Record): Promise<void> {
-    if (record.stopRequested) return;
-    record.stopRequested = true;
-    // Attribution must survive the abort: the driver only sees "run aborted".
-    record.view.settleReason = "budget";
-    record.startup.abort();
-    this.clearTimeout(record);
-    try {
-      if (record.driver) await record.driver.abort();
-    } catch {
-      /* The run settlement below still reports the stopped state. */
-    }
-    await record.run?.catch(() => {});
-    if (record.view.state !== "stopped") {
-      record.view.state = "stopped";
-      record.view.status = "Stopped; session retained";
-      delete record.view.output;
-      this.touch(record);
-    }
   }
   private freezeElapsed(record: Record): void {
     const startedAt = record.view.startedAt;

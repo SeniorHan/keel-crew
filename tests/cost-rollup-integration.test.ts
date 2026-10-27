@@ -112,7 +112,6 @@ test(
                 task: "First run",
                 wait: true,
             timeout: 0,
-            budgetTokens: 0,
           })
             : answer(0.02, "Main answer");
         },
@@ -189,7 +188,6 @@ test(
           task: "Replacement run",
           wait: true,
             timeout: 0,
-            budgetTokens: 0,
           });
         await tool(session, "agent_wait", { path: "worker" });
         assert.equal(replacement.state, "completed");
@@ -227,7 +225,6 @@ test(
           task: "Parent work",
           wait: true,
             timeout: 0,
-            budgetTokens: 0,
           });
         await tool(session, "agent_wait", { path: "team" });
         const child = await tool<ThreadView>(session, "agent_spawn", {
@@ -236,7 +233,6 @@ test(
           task: "Nested work",
           wait: true,
             timeout: 0,
-            budgetTokens: 0,
           });
         await tool(session, "agent_wait", { path: "team/child" });
         approximately(child.costUsd, 0.2);
@@ -286,7 +282,6 @@ test(
           task: "Pause",
           wait: true,
             timeout: 0,
-            budgetTokens: 0,
           });
         await tool(session, "agent_wait", { path: "worker" });
         assert.equal(paused.state, "paused");
@@ -348,7 +343,6 @@ test(
           task: "Continue until stopped",
           wait: true,
             timeout: 0,
-            budgetTokens: 0,
           });
         await pendingStarted;
         approximately(registry(root).threads[0].view.costUsd, 0.5);

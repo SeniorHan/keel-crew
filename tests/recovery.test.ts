@@ -252,13 +252,10 @@ test("recovery stops at three attempts and the failure says why", async () => {
     assert.equal(error.reason, "upstream-interrupted");
     assert.equal(error.recovery.attempts, 3);
     assert.match(error.message, /3 lossless recovery attempts \(4 runs total\)/);
-    // The recipient-facing report must rule the budget out explicitly when it was not the cause.
-    const report = formatRecoveryReport(error, {
-      spentInput: error.spentInput,
-      budgetTokens: 500_000,
-    });
-    assert.match(report, /the budget was never the cause/);
+    const report = formatRecoveryReport(error);
     assert.equal(report.split("\n")[0], "failed after 3 lossless recovery attempts; 4 runs total.");
+    // Spend figures never reach the parent model: they nudge it toward frugality.
+    assert.doesNotMatch(report, /tokens?|budget|\$/i);
     // One original run plus three recoveries.
     assert.equal(h.requests, 4);
     assert.ok(!h.events.some((event) => event.kind === "recovery" && event.phase === "recovered"));

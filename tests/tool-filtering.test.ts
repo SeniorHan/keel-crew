@@ -40,7 +40,7 @@ test(
       async ({ directory, cwd, open, tool, requests, errors }) => {
         const session = await open(SessionManager.create(cwd));
         const spawn = (path: string) =>
-          tool<ThreadView>(session, "agent_spawn", { path, type: "worker", task: "Work", timeout: 0, budgetTokens: 0 });
+          tool<ThreadView>(session, "agent_spawn", { path, type: "worker", task: "Work", timeout: 0 });
         assert.equal((await spawn("strict")).state, "completed");
         assert.deepEqual(requests.at(-1)!.toolNames, []);
         const rootTools = session.getActiveToolNames();
